@@ -4,7 +4,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import com.example.tiendamascotas.ui.theme.MascotasTheme
-import com.example.tiendamascotas.AppNavHost   // 👈 este import
+import com.example.tiendamascotas.AppNavHost
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
