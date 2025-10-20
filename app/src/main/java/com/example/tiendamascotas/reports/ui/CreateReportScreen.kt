@@ -157,12 +157,7 @@ fun CreateReportScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Reportes") },
-                actions = {
-                    IconButton(onClick = { nav.navigate(Routes.CHAT) }) {
-                        Icon(Icons.Filled.Chat, contentDescription = "Ir al chat")
-                    }
-                }
+                title = { Text("Reportes") }
             )
         },
         floatingActionButton = {

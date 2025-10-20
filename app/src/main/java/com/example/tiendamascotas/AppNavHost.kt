@@ -83,6 +83,16 @@ fun AppNavHost() {
             Text("Detalle adopción: " + bs.arguments?.getString("adoptionId").orEmpty())
         }
         composable(Screen.NotificationsSettings.route) { Text("Ajustes de notificaciones") }
+        composable(Routes.CHAT) {
+            ChatGeneralScreen(nav)
+        }
+        composable(
+            route = Routes.CONVERSATION,
+            arguments = listOf(navArgument("peerUid"){ type = NavType.StringType })
+        ) { backStackEntry ->
+            val peerUid = backStackEntry.arguments?.getString("peerUid") ?: return@composable
+            ConversationScreen(nav, peerUid)
+        }
         composable(Screen.Profile.route) { ProfileScreen(nav) }
         composable(
             route = Routes.CONVERSATION,

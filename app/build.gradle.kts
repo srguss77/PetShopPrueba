@@ -49,10 +49,14 @@ dependencies {
     implementation(libs.androidx.compose.material.icons.extended)
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.navigation.compose)
+    implementation(libs.androidx.compose.foundation)
+    implementation(libs.androidx.foundation)
     debugImplementation(libs.androidx.compose.ui.tooling)
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
+
+    implementation(libs.androidx.compose.foundation)
 
     // ----- Core AndroidX -----
     implementation("androidx.core:core-ktx:1.13.1")
