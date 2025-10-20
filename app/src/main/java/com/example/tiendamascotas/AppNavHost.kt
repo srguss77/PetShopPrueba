@@ -1,4 +1,3 @@
-// FILE: app/src/main/java/com/example/tiendamascotas/AppNavHost.kt
 package com.example.tiendamascotas
 
 import androidx.compose.material3.Text
@@ -8,13 +7,16 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.example.tiendamascotas.chat.ui.ChatGeneralScreen
 import com.example.tiendamascotas.home.HomeScreen
 import com.example.tiendamascotas.navigation.Screen
+import com.example.tiendamascotas.nav.Routes
 import com.example.tiendamascotas.ui.auth.LoginScreen
 import com.google.firebase.auth.FirebaseAuth
 import com.example.tiendamascotas.profile.ProfileScreen
 import com.example.tiendamascotas.reports.ui.ReportsFeedScreen
 import com.example.tiendamascotas.reports.ui.CreateReportScreen
+import com.example.tiendamascotas.chat.ui.ConversationScreen
 
 @Composable
 fun AppNavHost() {
@@ -71,7 +73,8 @@ fun AppNavHost() {
         ) { bs ->
             Text("Detalle reseña: " + bs.arguments?.getString("reviewId").orEmpty())
         }
-        composable(Screen.ChatGeneral.route) { Text("Chat general") }
+        composable(Screen.ChatGeneral.route) { ChatGeneralScreen(nav) }
+        composable(Routes.CHAT) { ChatGeneralScreen(nav) }
         composable(Screen.AdoptionsList.route) { Text("Listado de adopciones") }
         composable(
             Screen.AdoptionDetail.route,
@@ -81,5 +84,12 @@ fun AppNavHost() {
         }
         composable(Screen.NotificationsSettings.route) { Text("Ajustes de notificaciones") }
         composable(Screen.Profile.route) { ProfileScreen(nav) }
+        composable(
+            route = Routes.CONVERSATION,
+            arguments = listOf(navArgument("peerUid") { type = NavType.StringType })
+        ) { bs ->
+            val peerUid = bs.arguments?.getString("peerUid").orEmpty()
+            ConversationScreen(nav, peerUid)
+        }
     }
-}
+    }

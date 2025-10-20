@@ -1,3 +1,4 @@
+
 package com.example.tiendamascotas.reports.ui
 
 import android.net.Uri
@@ -10,6 +11,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Chat
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.*
@@ -25,6 +27,7 @@ import coil.compose.AsyncImage
 import com.example.tiendamascotas.ServiceLocator
 import com.example.tiendamascotas.data.repository.impl.FirestorePaths
 import com.example.tiendamascotas.domain.repository.ReportsRepository
+import com.example.tiendamascotas.nav.Routes
 import com.example.tiendamascotas.reports.model.PetReport
 import com.example.tiendamascotas.reports.util.uploadToCloudinary
 import com.google.firebase.auth.FirebaseAuth
@@ -152,10 +155,19 @@ fun CreateReportScreen(
     var toDelete by remember { mutableStateOf<PetReport?>(null) }
 
     Scaffold(
-        topBar = { TopAppBar(title = { Text("Reportes") }) },
+        topBar = {
+            TopAppBar(
+                title = { Text("Reportes") },
+                actions = {
+                    IconButton(onClick = { nav.navigate(Routes.CHAT) }) {
+                        Icon(Icons.Filled.Chat, contentDescription = "Ir al chat")
+                    }
+                }
+            )
+        },
         floatingActionButton = {
             FloatingActionButton(onClick = { resetForm(); showSheet = true }) {
-                Icon(Icons.Default.Add, contentDescription = "Agregar")
+                Icon(Icons.Filled.Add, contentDescription = "Agregar")
             }
         },
         snackbarHost = { SnackbarHost(snackbar) }
