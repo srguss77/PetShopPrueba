@@ -16,8 +16,12 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavHostController
 import com.example.tiendamascotas.ServiceLocator
+import com.example.tiendamascotas.data.repository.impl.FirestorePaths
 import com.example.tiendamascotas.domain.repository.ChatRepository
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.SetOptions
+import com.google.firebase.firestore.ktx.firestore
+import com.google.firebase.ktx.Firebase
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -30,6 +34,14 @@ fun ConversationScreen(
 ) {
     val scope = rememberCoroutineScope()
     val myUid = remember { auth.currentUser?.uid }
+
+    // Al abrir la conversación, marcar como leído
+    LaunchedEffect(peerUid, myUid) {
+        val me = myUid ?: return@LaunchedEffect
+        Firebase.firestore.collection(FirestorePaths.USERS).document(me)
+            .collection(FirestorePaths.CHATS).document(peerUid)
+            .set(mapOf("unreadCount" to 0), SetOptions.merge())
+    }
 
     // Mensajes del hilo (en tiempo real)
     val messages by repo.observeConversation(peerUid).collectAsState(initial = emptyList())
@@ -64,7 +76,6 @@ fun ConversationScreen(
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
                     keyboardActions = KeyboardActions(
-
                         onSend = {
                             val t = text.trim()
                             if (t.isNotEmpty()) {

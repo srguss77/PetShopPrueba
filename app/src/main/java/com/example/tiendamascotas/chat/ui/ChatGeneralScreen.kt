@@ -1,141 +1,250 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 package com.example.tiendamascotas.chat.ui
 
-import androidx.compose.foundation.Image
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Chat
+import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.SmartToy
-import androidx.compose.material3.Divider
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavHostController
 import coil.compose.AsyncImage
-import com.example.tiendamascotas.data.repository.impl.FirestorePaths
-import com.example.tiendamascotas.domain.model.UserProfile
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.ListenerRegistration
+import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.ktx.firestore
 import com.google.firebase.ktx.Firebase
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
+import java.text.SimpleDateFormat
+import java.util.*
+
+private const val AI_UID = "petshop_ai" // UID reservado para el bot
+
+data class ChatThreadUi(
+    val peerUid: String,
+    val lastMessage: String,
+    val unread: Int,
+    val updatedAt: Long
+)
+
+data class UserUi(
+    val uid: String,
+    val displayName: String,
+    val photoUrl: String?
+)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChatGeneralScreen(nav: NavHostController) {
+    val auth = remember { FirebaseAuth.getInstance() }
+    val myUid = remember { auth.currentUser?.uid }
+    val scope = rememberCoroutineScope()
 
-    // --- estado UI ---
+    var showSearch by remember { mutableStateOf(false) }
     var query by remember { mutableStateOf("") }
-    var users by remember { mutableStateOf<List<UserProfile>>(emptyList()) }
+    var searchResults by remember { mutableStateOf(listOf<UserUi>()) }
 
-    // --- auth para ocultar el propio usuario ---
-    val meUid = remember { FirebaseAuth.getInstance().currentUser?.uid }
+    var threads by remember { mutableStateOf(listOf<ChatThreadUi>()) }
+    var profiles by remember { mutableStateOf<Map<String, UserUi>>(emptyMap()) }
+    var errorMsg by remember { mutableStateOf<String?>(null) }
 
-    // --- traer usuarios de Firestore (colección "users") ---
-    LaunchedEffect(Unit) {
-        Firebase.firestore.collection(FirestorePaths.USERS)
-            .addSnapshotListener { snap, _ ->
-                val list = snap?.documents?.map { d ->
-                    UserProfile(
-                        uid = d.getString("uid") ?: d.id,
-                        displayName = d.getString("displayName") ?: (d.getString("email") ?: "Usuario"),
-                        email = d.getString("email") ?: "",
-                        photoUrl = d.getString("photoUrl")
-                    )
-                }.orEmpty()
-                users = list.filter { it.uid != meUid } // no mostrarse a sí mismo
+    if (myUid == null) {
+        Scaffold(
+            topBar = {
+                TopAppBar(
+                    title = { Text("Chats") },
+                    navigationIcon = {
+                        IconButton(onClick = { nav.popBackStack() }) {
+                            Icon(Icons.Default.ArrowBack, contentDescription = "Atrás")
+                        }
+                    }
+                )
             }
+        ) { padd ->
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .padding(padd),
+                contentAlignment = Alignment.Center
+            ) {
+                Text("Inicia sesión para ver tus chats")
+            }
+        }
+        return
     }
 
-    // --- filtro local por nombre o email ---
-    val filtered = remember(query, users) {
-        val q = query.trim().lowercase()
-        if (q.isBlank()) users
-        else users.filter {
-            it.displayName.lowercase().contains(q) || it.email.lowercase().contains(q)
-        }
+    // 👇 Utilidad local: lee millis sin crashear si no es Timestamp
+    fun Any?.toMillis(): Long = when (this) {
+        is com.google.firebase.Timestamp -> this.toDate().time
+        is Number -> this.toLong()
+        is Map<*, *> -> ((this["seconds"] as? Number)?.toLong() ?: 0L) * 1000
+        else -> 0L
+    }
+
+    // Listener /users/{myUid}/chats (ordenado por updatedAt)
+    DisposableEffect(myUid) {
+        var reg: ListenerRegistration? = null
+        reg = Firebase.firestore
+            .collection("users")
+            .document(myUid)
+            .collection("chats")
+            .orderBy("updatedAt", Query.Direction.DESCENDING)
+            .addSnapshotListener { snap, err ->
+                if (err != null) {
+                    errorMsg = err.message
+                    return@addSnapshotListener
+                }
+                if (snap == null) return@addSnapshotListener
+
+                val mapped = snap.documents.map { d ->
+                    val peer = (d.getString("peerUid") ?: d.id).orEmpty()
+                    val last = d.getString("lastMessage").orEmpty()
+                    val unread = (d.getLong("unreadCount") ?: 0L).toInt().coerceAtLeast(0)
+                    val updated = d.get("updatedAt").toMillis() // 👈 seguro
+                    ChatThreadUi(peer, last, unread, updated)
+                }
+                threads = mapped
+
+                // Cargar perfiles faltantes
+                scope.launch {
+                    val current = profiles.toMutableMap()
+                    mapped.forEach { t ->
+                        if (!current.containsKey(t.peerUid)) {
+                            runCatching {
+                                val doc = Firebase.firestore.collection("users").document(t.peerUid).get().await()
+                                if (doc.exists()) {
+                                    current[t.peerUid] = UserUi(
+                                        uid = t.peerUid,
+                                        displayName = doc.getString("displayName") ?: "Usuario",
+                                        photoUrl = doc.getString("photoUrl")
+                                    )
+                                } else {
+                                    current[t.peerUid] = UserUi(t.peerUid, "Usuario", null)
+                                }
+                            }.onFailure {
+                                current[t.peerUid] = UserUi(t.peerUid, "Usuario", null)
+                            }
+                        }
+                    }
+                    profiles = current
+                }
+            }
+        onDispose { reg?.remove() }
+    }
+
+    // Búsqueda por prefijo sobre displayNameLower
+    LaunchedEffect(showSearch, query, myUid) {
+        if (!showSearch) { searchResults = emptyList(); return@LaunchedEffect }
+        val q = query.trim().lowercase(Locale.ROOT)
+        if (q.length < 2) { searchResults = emptyList(); return@LaunchedEffect }
+
+        runCatching {
+            val snap = Firebase.firestore.collection("users")
+                .orderBy("displayNameLower")
+                .startAt(q)
+                .endAt(q + "\uf8ff")
+                .limit(30)
+                .get()
+                .await()
+            searchResults = snap.documents
+                .filter { it.id != myUid && it.id != AI_UID }
+                .map {
+                    UserUi(
+                        uid = it.id,
+                        displayName = it.getString("displayName") ?: "Usuario",
+                        photoUrl = it.getString("photoUrl")
+                    )
+                }
+        }.onFailure { errorMsg = it.message }
     }
 
     Scaffold(
-        topBar = { TopAppBar(title = { Text("Chat general") }) }
-    ) { paddings ->
-        Column(
-            Modifier
-                .fillMaxSize()
-                .padding(paddings)
-                .padding(16.dp)
-        ) {
-            OutlinedTextField(
-                value = query,
-                onValueChange = { query = it },
-                leadingIcon = { Icon(Icons.Filled.Search, contentDescription = "Buscar") },
-                placeholder = { Text("Buscar usuarios…") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth()
-            )
-
-            Spacer(Modifier.height(12.dp))
-
-            // ---- Ítem PINNED: PetShop IA ----
-            ChatRow(
-                title = "PetShop IA",
-                subtitle = "Asistente de la app",
-                avatar = {
-                    Icon(
-                        imageVector = Icons.Filled.SmartToy,
-                        contentDescription = "IA",
-                        tint = MaterialTheme.colorScheme.primary
-                    )
+        topBar = {
+            TopAppBar(
+                title = { Text("Chats") },
+                navigationIcon = {
+                    IconButton(onClick = { nav.popBackStack() }) {
+                        Icon(Icons.Default.ArrowBack, contentDescription = "Atrás")
+                    }
                 },
-                onClick = {
-                    // Lo dejamos separado: usa un peerUid especial que luego
-                    // trataremos distinto al implementar la IA.
-                    nav.navigate("conversation/__IA__")
+                actions = {
+                    IconButton(onClick = { showSearch = !showSearch }) {
+                        Icon(Icons.Default.Search, contentDescription = "Buscar usuarios")
+                    }
                 }
             )
-            Divider(Modifier.padding(vertical = 8.dp))
-
-            // ---- Lista de usuarios (dinámica) ----
-            if (filtered.isEmpty()) {
+        }
+    ) { padd ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padd)
+        ) {
+            if (errorMsg != null) {
                 Text(
-                    "No se encontraron usuarios.",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    text = "Aviso: ${errorMsg}",
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.padding(12.dp),
+                    style = MaterialTheme.typography.bodySmall
                 )
-            } else {
-                Column {
-                    filtered.forEach { u ->
-                        ChatRow(
-                            title = u.displayName.ifBlank { u.email },
-                            subtitle = u.email,
-                            avatar = {
-                                if (u.photoUrl.isNullOrBlank()) {
-                                    Icon(Icons.Filled.Person, contentDescription = "Usuario")
-                                } else {
-                                    AsyncImage(
-                                        model = u.photoUrl,
-                                        contentDescription = "Avatar",
-                                        modifier = Modifier
-                                            .size(40.dp)
-                                            .clip(CircleShape)
-                                    )
-                                }
-                            },
-                            onClick = {
-                                // abre la conversación 1:1 con el usuario
-                                nav.navigate("conversation/${u.uid}")
-                            }
+            }
+
+            if (showSearch) {
+                SearchBar(
+                    query = query,
+                    onQueryChange = { query = it },
+                    onClose = { showSearch = false; query = "" }
+                )
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(bottom = 16.dp)
+                ) {
+                    items(searchResults, key = { it.uid }) { user ->
+                        UserRow(
+                            user = user,
+                            onClick = { nav.navigate("conversation/${user.uid}") }
                         )
-                        Divider()
+                    }
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    // Chat fijo IA
+                    item(key = "petshop-ia") {
+                        ChatRowBase(
+                            avatarUrl = null,
+                            title = "PetShop IA 🤖",
+                            subtitle = "Asistente virtual",
+                            unread = 0,
+                            updatedAt = null,
+                            onClick = { nav.navigate("conversation/$AI_UID") }
+                        )
+                    }
+                    // Solo hilos existentes
+                    items(threads, key = { it.peerUid }) { t ->
+                        val u = profiles[t.peerUid]
+                        ChatRowBase(
+                            avatarUrl = u?.photoUrl,
+                            title = u?.displayName ?: "Usuario",
+                            subtitle = t.lastMessage.ifBlank { "Empieza la conversación" },
+                            unread = t.unread,
+                            updatedAt = t.updatedAt.takeIf { it > 0L },
+                            onClick = { nav.navigate("conversation/${t.peerUid}") }
+                        )
                     }
                 }
             }
@@ -144,31 +253,127 @@ fun ChatGeneralScreen(nav: NavHostController) {
 }
 
 @Composable
-private fun ChatRow(
-    title: String,
-    subtitle: String?,
-    avatar: @Composable () -> Unit,
-    onClick: () -> Unit
+private fun SearchBar(
+    query: String,
+    onQueryChange: (String) -> Unit,
+    onClose: () -> Unit
 ) {
     Row(
-        Modifier
+        modifier = Modifier
             .fillMaxWidth()
-            .clickable { onClick() }
-            .padding(vertical = 10.dp),
+            .padding(12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Box(Modifier.size(40.dp), contentAlignment = Alignment.Center) {
-            avatar()
+        OutlinedTextField(
+            value = query,
+            onValueChange = onQueryChange,
+            modifier = Modifier.weight(1f),
+            singleLine = true,
+            placeholder = { Text("Buscar por nombre…") },
+            trailingIcon = {
+                if (query.isNotEmpty()) {
+                    IconButton(onClick = { onQueryChange("") }) {
+                        Icon(Icons.Default.Clear, contentDescription = "Limpiar")
+                    }
+                }
+            }
+        )
+        Spacer(Modifier.width(8.dp))
+        TextButton(onClick = onClose) { Text("Cerrar") }
+    }
+}
+
+@Composable
+private fun UserRow(user: UserUi, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(vertical = 10.dp, horizontal = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        if (!user.photoUrl.isNullOrBlank()) {
+            AsyncImage(
+                model = user.photoUrl,
+                contentDescription = "Avatar",
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(MaterialTheme.shapes.small)
+            )
+        } else {
+            Icon(Icons.Default.Chat, contentDescription = "Avatar", modifier = Modifier.size(40.dp))
         }
         Spacer(Modifier.width(12.dp))
-        Column(Modifier.weight(1f)) {
-            Text(title, style = MaterialTheme.typography.titleMedium)
-            if (!subtitle.isNullOrBlank()) {
-                Text(
-                    subtitle,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+        Text(text = user.displayName, style = MaterialTheme.typography.titleMedium)
+    }
+}
+
+@Composable
+private fun ChatRowBase(
+    avatarUrl: String?,
+    title: String,
+    subtitle: String,
+    unread: Int,
+    updatedAt: Long?,
+    onClick: () -> Unit
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+    ) {
+        Row(
+            modifier = Modifier.padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            if (!avatarUrl.isNullOrBlank()) {
+                AsyncImage(
+                    model = avatarUrl,
+                    contentDescription = "Avatar",
+                    modifier = Modifier
+                        .size(46.dp)
+                        .clip(MaterialTheme.shapes.small)
                 )
+            } else {
+                Icon(Icons.Default.Chat, contentDescription = "Avatar", modifier = Modifier.size(46.dp))
+            }
+
+            Spacer(Modifier.width(12.dp))
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+
+            Spacer(Modifier.width(8.dp))
+
+            Column(horizontalAlignment = Alignment.End) {
+                updatedAt?.let { ts ->
+                    val fmt = remember { SimpleDateFormat("HH:mm", Locale.getDefault()) }
+                    Text(
+                        text = runCatching { fmt.format(Date(ts)) }.getOrDefault(""),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(Modifier.height(6.dp))
+                }
+                if (unread > 0) {
+                    BadgedBox(badge = { Badge { Text(unread.toString()) } }) {
+                        Spacer(Modifier.size(1.dp)) // ancla invisible
+                    }
+                }
             }
         }
     }

@@ -15,13 +15,19 @@ import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Pets
 import androidx.compose.material.icons.filled.RateReview
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavHostController
 import com.example.tiendamascotas.navigation.Screen
-
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.DocumentChange
+import com.google.firebase.firestore.ListenerRegistration
+import com.google.firebase.firestore.ktx.firestore
+import com.google.firebase.ktx.Firebase
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -35,23 +41,48 @@ fun HomeScreen(nav: NavHostController) {
         Feature("Adopciones", Icons.Filled.Favorite, Screen.AdoptionsList.route),
     )
 
+    // Snackbar para avisos in-app
+    val snackbarHost = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+
+    // Contador total de no leídos para badge
+    var unreadTotal by remember { mutableStateOf(0) }
+
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text("Mascotas") },
                 actions = {
-                    IconButton(onClick = { nav.navigate(Screen.NotificationsSettings.route) }) {
-                        Icon(Icons.Filled.Notifications, contentDescription = "Notificaciones")
+                    // Campanita con badge
+                    BadgedBox(
+                        badge = {
+                            if (unreadTotal > 0) {
+                                Badge {
+                                    Text(if (unreadTotal > 99) "99+" else unreadTotal.toString())
+                                }
+                            }
+                        }
+                    ) {
+                        IconButton(onClick = { nav.navigate(Screen.NotificationsSettings.route) }) {
+                            Icon(Icons.Filled.Notifications, contentDescription = "Notificaciones")
+                        }
                     }
                     IconButton(onClick = { nav.navigate(Screen.Profile.route) }) {
                         Icon(Icons.Filled.AccountCircle, contentDescription = "Perfil")
                     }
                 }
             )
-        }
+        },
+        snackbarHost = { SnackbarHost(snackbarHost) }
     ) { innerPadding ->
 
-        // 👇 En lugar de innerPadding.plus(...), usamos un contenedor y aplicamos paddings por separado
+        // Escucha Firestore para: (1) snackbar de “nuevo mensaje” y (2) actualizar badge
+        NewMessageWatcher(
+            nav = nav,
+            snackbar = snackbarHost,
+            onUnreadTotalChange = { unreadTotal = it }
+        )
+
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -65,9 +96,11 @@ fun HomeScreen(nav: NavHostController) {
                 modifier = Modifier.fillMaxSize()
             ) {
                 items(features) { f ->
+                    val badgeCount = if (f.route == Screen.ChatGeneral.route) unreadTotal else 0
                     FeatureCard(
                         label = f.label,
                         icon = f.icon,
+                        badgeCount = badgeCount,
                         onClick = { nav.navigate(f.route) }
                     )
                 }
@@ -80,6 +113,7 @@ fun HomeScreen(nav: NavHostController) {
 private fun FeatureCard(
     label: String,
     icon: androidx.compose.ui.graphics.vector.ImageVector,
+    badgeCount: Int = 0,
     onClick: () -> Unit
 ) {
     Card(
@@ -90,6 +124,18 @@ private fun FeatureCard(
         shape = MaterialTheme.shapes.extraLarge
     ) {
         Box(Modifier.fillMaxSize()) {
+
+            // Badge opcional en la esquina del card (para el tile de Chat)
+            if (badgeCount > 0) {
+                Badge(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(10.dp)
+                ) {
+                    Text(if (badgeCount > 99) "99+" else badgeCount.toString())
+                }
+            }
+
             Column(
                 modifier = Modifier
                     .align(Alignment.Center)
@@ -109,3 +155,84 @@ private data class Feature(
     val icon: androidx.compose.ui.graphics.vector.ImageVector,
     val route: String
 )
+
+/**
+ * Escucha en tiempo real:
+ * - Suma de no leídos para los badges (campanita y tile de Chat)
+ * - Snackbar cuando un hilo se actualiza con nuevos no leídos
+ *
+ * Requiere en cada chat doc:
+ *  - peerUid: String
+ *  - lastMessage: String
+ *  - updatedAt: Timestamp
+ *  - unreadCount: Number (no leídos de ESE hilo, desde la perspectiva del usuario actual)
+ */
+@Composable
+private fun NewMessageWatcher(
+    nav: NavHostController,
+    snackbar: SnackbarHostState,
+    onUnreadTotalChange: (Int) -> Unit
+) {
+    val scope = rememberCoroutineScope()
+    val myUid = remember { FirebaseAuth.getInstance().currentUser?.uid }
+
+    // helper local para evitar crash por tipos viejos
+    fun Any?.toMillis(): Long = when (this) {
+        is com.google.firebase.Timestamp -> this.toDate().time
+        is Number -> this.toLong()
+        is Map<*, *> -> ((this["seconds"] as? Number)?.toLong() ?: 0L) * 1000
+        else -> 0L
+    }
+
+    var isInitial by remember { mutableStateOf(true) }
+    var lastKeyNotified by remember { mutableStateOf<String?>(null) }
+
+    DisposableEffect(myUid) {
+        var reg: ListenerRegistration? = null
+        if (myUid != null) {
+            reg = Firebase.firestore
+                .collection("users")
+                .document(myUid)
+                .collection("chats")
+                .addSnapshotListener { snap, err ->
+                    if (err != null || snap == null) return@addSnapshotListener
+
+                    // 1) total no leídos
+                    val total = snap.documents.sumOf { (it.getLong("unreadCount") ?: 0L).toInt() }
+                    onUnreadTotalChange(total)
+
+                    // 2) ignorar primera carga
+                    if (isInitial) {
+                        isInitial = false
+                        return@addSnapshotListener
+                    }
+
+                    // 3) snackbar por cambios con no leídos
+                    snap.documentChanges.forEach { dc ->
+                        val unread = (dc.document.getLong("unreadCount") ?: 0L).toInt()
+                        if (unread <= 0) return@forEach
+
+                        val peerUid = dc.document.getString("peerUid") ?: dc.document.id
+                        val preview = dc.document.getString("lastMessage") ?: "Mensaje nuevo"
+                        val updatedAtMs = dc.document.get("updatedAt").toMillis() // 👈 seguro
+                        val key = "$peerUid-$updatedAtMs-$unread"
+                        if (key == lastKeyNotified) return@forEach
+                        lastKeyNotified = key
+
+                        scope.launch {
+                            val result = snackbar.showSnackbar(
+                                message = "Nuevo mensaje: $preview",
+                                actionLabel = "Abrir",
+                                withDismissAction = true,
+                                duration = SnackbarDuration.Short
+                            )
+                            if (result == SnackbarResult.ActionPerformed) {
+                                nav.navigate("conversation/$peerUid")
+                            }
+                        }
+                    }
+                }
+        }
+        onDispose { reg?.remove() }
+    }
+}

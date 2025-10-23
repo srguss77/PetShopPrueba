@@ -1,6 +1,5 @@
 package com.example.tiendamascotas.data.repository.impl
 
-import com.example.tiendamascotas.data.repository.impl.FirestorePaths
 import com.example.tiendamascotas.domain.model.ChatMessage
 import com.example.tiendamascotas.domain.model.ChatUser
 import com.example.tiendamascotas.domain.repository.ChatRepository
@@ -13,7 +12,7 @@ import com.google.firebase.ktx.Firebase
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
-import kotlinx.coroutines.tasks.await   // <- IMPORT CLAVE
+import kotlinx.coroutines.tasks.await
 
 class FirestoreChatRepository(
     private val auth: FirebaseAuth = FirebaseAuth.getInstance()
@@ -90,7 +89,7 @@ class FirestoreChatRepository(
         awaitClose { reg.remove() }
     }
 
-    /** Envío con espejo en ambos usuarios y actualización de lastMessage/updatedAt. */
+    /** Envío espejo en ambos usuarios + actualiza lastMessage/updatedAt y unreadCount. */
     override suspend fun sendText(peerUid: String, text: String): Result<Unit> = runCatching {
         val me = auth.currentUser?.uid ?: error("No authenticated user")
         val trimmed = text.trim()
@@ -101,7 +100,7 @@ class FirestoreChatRepository(
         val peerChat = db.collection(FirestorePaths.USERS).document(peerUid)
             .collection(FirestorePaths.CHATS).document(me)
 
-        // Usamos un mismo id para ambos
+        // Un mismo id de mensaje en ambos lados (útil para depurar)
         val newId = myChat.collection(FirestorePaths.MESSAGES).document().id
 
         val now = FieldValue.serverTimestamp()
@@ -112,15 +111,35 @@ class FirestoreChatRepository(
         )
 
         db.runBatch { b ->
-            // metadata hilos
-            b.set(myChat, mapOf("peerUid" to peerUid, "lastMessage" to trimmed, "updatedAt" to now), SetOptions.merge())
-            b.set(peerChat, mapOf("peerUid" to me,   "lastMessage" to trimmed, "updatedAt" to now), SetOptions.merge())
+            // metadata hilos (mi vista: sin no leídos)
+            b.set(
+                myChat,
+                mapOf(
+                    "peerUid" to peerUid,
+                    "lastMessage" to trimmed,
+                    "updatedAt" to now,
+                    "unreadCount" to 0
+                ),
+                SetOptions.merge()
+            )
+
+            // metadata hilos (peer: incrementa no leídos)
+            b.set(
+                peerChat,
+                mapOf(
+                    "peerUid" to me,
+                    "lastMessage" to trimmed,
+                    "updatedAt" to now,
+                    "unreadCount" to FieldValue.increment(1)
+                ),
+                SetOptions.merge()
+            )
 
             // mensajes espejo
             b.set(myChat.collection(FirestorePaths.MESSAGES).document(newId), msgData)
             b.set(peerChat.collection(FirestorePaths.MESSAGES).document(newId), msgData)
         }.await()
 
-        Unit  // <- devolvemos Unit para que encaje con Result<Unit>
+        Unit
     }
 }
