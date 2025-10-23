@@ -1,3 +1,4 @@
+// FILE: app/src/main/java/com/example/tiendamascotas/AppNavHost.kt
 package com.example.tiendamascotas
 
 import androidx.compose.material3.Text
@@ -22,7 +23,6 @@ import com.example.tiendamascotas.chat.ui.ConversationScreen
 fun AppNavHost() {
     val nav = rememberNavController()
 
-    // ✅ Usa firebaseAuth (nombre claro) y NO una variable 'auth' perdida
     val firebaseAuth = remember { FirebaseAuth.getInstance() }
     var isLoggedIn by remember { mutableStateOf(firebaseAuth.currentUser != null) }
 
@@ -34,10 +34,8 @@ fun AppNavHost() {
         onDispose { firebaseAuth.removeAuthStateListener(listener) }
     }
 
-    // 🔐 Gate de autenticación como startDestination
     NavHost(navController = nav, startDestination = "auth/gate") {
 
-        // Decide a dónde ir y limpia el back stack del gate
         composable("auth/gate") {
             LaunchedEffect(isLoggedIn) {
                 nav.navigate(if (isLoggedIn) Screen.Home.route else Screen.Login.route) {
@@ -46,13 +44,10 @@ fun AppNavHost() {
             }
         }
 
-        // Login real
         composable(Screen.Login.route) { LoginScreen(nav) }
-
-        // Home
         composable(Screen.Home.route) { HomeScreen(nav) }
 
-        // --- Rutas stub que ya tenías ---
+        // Stubs y otras rutas existentes
         composable(Screen.CreateReport.route) { Text("Crear reporte") }
         composable(Screen.Map.route) { Text("Mapa de reportes") }
         composable(Screen.ReportsFeed.route) { ReportsFeedScreen(nav) }
@@ -73,8 +68,11 @@ fun AppNavHost() {
         ) { bs ->
             Text("Detalle reseña: " + bs.arguments?.getString("reviewId").orEmpty())
         }
+
         composable(Screen.ChatGeneral.route) { ChatGeneralScreen(nav) }
+        // ✅ Solo un alias extra si lo usabas:
         composable(Routes.CHAT) { ChatGeneralScreen(nav) }
+
         composable(Screen.AdoptionsList.route) { Text("Listado de adopciones") }
         composable(
             Screen.AdoptionDetail.route,
@@ -83,23 +81,16 @@ fun AppNavHost() {
             Text("Detalle adopción: " + bs.arguments?.getString("adoptionId").orEmpty())
         }
         composable(Screen.NotificationsSettings.route) { Text("Ajustes de notificaciones") }
-        composable(Routes.CHAT) {
-            ChatGeneralScreen(nav)
-        }
+
+        // ✅ ÚNICO bloque para conversación (sin duplicados)
         composable(
             route = Routes.CONVERSATION,
-            arguments = listOf(navArgument("peerUid"){ type = NavType.StringType })
+            arguments = listOf(navArgument("peerUid") { type = NavType.StringType })
         ) { backStackEntry ->
             val peerUid = backStackEntry.arguments?.getString("peerUid") ?: return@composable
             ConversationScreen(nav, peerUid)
         }
+
         composable(Screen.Profile.route) { ProfileScreen(nav) }
-        composable(
-            route = Routes.CONVERSATION,
-            arguments = listOf(navArgument("peerUid") { type = NavType.StringType })
-        ) { bs ->
-            val peerUid = bs.arguments?.getString("peerUid").orEmpty()
-            ConversationScreen(nav, peerUid)
-        }
     }
-    }
+}

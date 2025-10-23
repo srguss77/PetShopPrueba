@@ -8,6 +8,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -19,7 +20,10 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
@@ -27,90 +31,95 @@ import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavHostController
+import coil.compose.AsyncImage
+import coil.request.ImageRequest
+import com.example.tiendamascotas.ServiceLocator
+import com.example.tiendamascotas.domain.model.ChatMessage
+import com.example.tiendamascotas.domain.repository.ChatRepository
+import com.example.tiendamascotas.domain.repository.UserPresence
+import com.example.tiendamascotas.domain.repository.UserPublic
 import com.google.firebase.auth.FirebaseAuth
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.collect
-import java.lang.reflect.Method
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 
-/* ===========================================================
-   API pública (mantener firma y defaults)
-   =========================================================== */
-
 @Composable
 fun ConversationScreen(
     nav: NavHostController,
     peerUid: String,
-    // Mantiene tu API por defecto. Ajusta el paquete si tu ServiceLocator vive en otro.
-    repo: Any = com.example.tiendamascotas.ServiceLocator.chat,
+    repo: ChatRepository = ServiceLocator.chat,
     auth: FirebaseAuth = FirebaseAuth.getInstance()
 ) {
     val myUid = auth.currentUser?.uid.orEmpty()
     val scope = rememberCoroutineScope()
 
-    // === Observación de mensajes sin depender de tipos concretos ===
-    var rawMessages by remember { mutableStateOf<List<Any>>(emptyList()) }
-
-    LaunchedEffect(repo, peerUid) {
-        // intenta observeConversation(peerUid) o variantes
-        val flow = resolveObserveFlow(repo, peerUid)
-        if (flow != null) {
-            flow.collect { emitted ->
-                rawMessages = when (emitted) {
-                    is List<*> -> emitted.filterNotNull()
-                    else -> emptyList()
-                }
-            }
-        } else {
-            // si no hay flujo, dejamos vacío (no rompemos UI)
-            rawMessages = emptyList()
-        }
+    // Mensajes del hilo
+    var messages by remember(peerUid) { mutableStateOf(emptyList<ChatMessage>()) }
+    LaunchedEffect(peerUid, repo) {
+        repo.observeConversation(peerUid).collect { msgs -> messages = msgs }
     }
 
-    // Título: usa peerUid ahora. TODO para resolver displayName real sin implementarlo.
-    val title by remember(peerUid) {
-        mutableStateOf(peerUid) // TODO(): resolver nombre del peer (lookup en /users o args)
+    // Perfil del peer (nombre/foto)
+    var userPublic by remember(peerUid) { mutableStateOf<UserPublic?>(null) }
+    LaunchedEffect(peerUid, repo) {
+        repo.observeUserPublic(peerUid).collect { up -> userPublic = up }
     }
 
-    // Mapeo UI (no tocamos backend). Asumimos campos id/fromUid/text/createdAt en los objetos.
-    val uiMessages by remember(rawMessages, myUid) {
+    // Presencia y typing
+    val presence by repo.observePresence(peerUid).collectAsState(initial = UserPresence(false, null))
+    val typing by repo.observeTyping(peerUid).collectAsState(initial = false)
+
+    val title = userPublic?.displayName ?: peerUid
+    val photo = userPublic?.photoUrl
+    val subtitle = when {
+        typing -> "Escribiendo…"
+        presence.isOnline -> "En línea"
+        else -> presence.lastSeen?.let { "Últ. vez ${relative(it)}" } ?: "—"
+    }
+
+    val uiMessages by remember(messages, myUid) {
         derivedStateOf {
-            rawMessages.mapNotNull { m -> toMessageUi(m, myUid) }
-                .sortedByDescending { it.timestamp } // reverseLayout=true → más nuevo arriba (índice 0)
+            messages.map { m ->
+                MessageUi(
+                    id = m.id,
+                    text = m.text,
+                    isMine = m.fromUid == myUid,
+                    timestamp = m.createdAt
+                )
+            }.sortedByDescending { it.timestamp }
         }
     }
 
-    // Headers por día (Hoy, Ayer, dd/MM/yyyy)
     val items by remember(uiMessages) { derivedStateOf { withDayHeaders(uiMessages) } }
-
     val listState = rememberLazyListState()
 
-    // Estoy al fondo (con reverseLayout, fondo = índice 0 sin offset)
     val isAtBottom by remember(listState) {
         derivedStateOf { listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0 }
     }
-
-    // ¿El más nuevo es mío?
     val latestMine by remember(items) {
         derivedStateOf {
             items.firstOrNull { it is ConvListItem.MessageItem }?.let { (it as ConvListItem.MessageItem).msg.isMine } ?: false
         }
     }
-
-    // Auto-scroll: si el más nuevo es mío o ya estás al fondo → baja.
     LaunchedEffect(items.size) {
-        if (items.isNotEmpty() && (latestMine || isAtBottom)) {
-            listState.animateScrollToItem(0)
-        }
+        if (items.isNotEmpty() && (latestMine || isAtBottom)) listState.animateScrollToItem(0)
     }
 
-    // Estado de input
     var input by rememberSaveable { mutableStateOf("") }
     val canSend by remember(input) { derivedStateOf { input.trim().isNotEmpty() } }
+
+    // Debounce de typing (3s)
+    var typingJob by remember { mutableStateOf<Job?>(null) }
+    DisposableEffect(peerUid) {
+        onDispose {
+            // Apaga typing al salir
+            scope.launch { repo.setTyping(peerUid, false) }
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -121,7 +130,42 @@ fun ConversationScreen(
                         modifier = Modifier.semantics { contentDescription = "Atrás" }
                     ) { Icon(Icons.Default.ArrowBack, contentDescription = null) }
                 },
-                title = { Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                title = {
+                    Column {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            if (!photo.isNullOrBlank()) {
+                                val ctx = LocalContext.current
+                                AsyncImage(
+                                    model = ImageRequest.Builder(ctx)
+                                        .data(photo)
+                                        .crossfade(true)
+                                        .size(64)
+                                        .build(),
+                                    contentDescription = "Avatar",
+                                    modifier = Modifier
+                                        .size(32.dp)
+                                        .clip(CircleShape),
+                                    contentScale = ContentScale.Crop
+                                )
+                                Spacer(Modifier.width(8.dp))
+                            }
+                            Text(
+                                text = title,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                style = MaterialTheme.typography.titleLarge
+                            )
+                        }
+                        Spacer(Modifier.height(2.dp))
+                        Text(
+                            text = subtitle,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
             )
         }
     ) { padd ->
@@ -129,6 +173,7 @@ fun ConversationScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padd)
+                .navigationBarsPadding()
         ) {
             MessagesList(
                 items = items,
@@ -136,17 +181,36 @@ fun ConversationScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f)
+                    .imePadding()
             )
 
             InputBar(
                 value = input,
-                onValueChange = { input = it },
+                onValueChange = { new ->
+                    input = new
+                    val trimmed = new.trim()
+                    scope.launch {
+                        if (trimmed.isNotEmpty()) {
+                            repo.setTyping(peerUid, true)
+                            typingJob?.cancel()
+                            typingJob = launch {
+                                delay(3000)
+                                repo.setTyping(peerUid, false)
+                            }
+                        } else {
+                            typingJob?.cancel()
+                            repo.setTyping(peerUid, false)
+                        }
+                    }
+                },
                 onSend = {
                     if (!canSend) return@InputBar
                     val textToSend = input.trim()
                     scope.launch {
-                        runCatching { trySendText(repo, peerUid, textToSend) }
+                        runCatching { repo.sendText(peerUid, textToSend) }
                         input = ""
+                        typingJob?.cancel()
+                        repo.setTyping(peerUid, false)
                         listState.animateScrollToItem(0)
                     }
                 },
@@ -162,46 +226,7 @@ fun ConversationScreen(
     }
 }
 
-/* ===========================================================
-   Resolución dinámica de repo/flujo/envío (reflexión segura)
-   =========================================================== */
-
-// Busca un método con nombre y un único parámetro String
-private fun findStringMethod(target: Any, vararg names: String): Method? {
-    val methods = target.javaClass.methods
-    for (n in names) {
-        methods.firstOrNull { it.name == n && it.parameterCount == 1 && it.parameterTypes[0] == String::class.java }
-            ?.let { return it }
-    }
-    return null
-}
-
-// Intenta obtener Flow<List<Any>> desde repo.observeConversation(peerUid) u otras variantes conocidas
-@Suppress("UNCHECKED_CAST")
-private fun resolveObserveFlow(repo: Any, peerUid: String): Flow<List<Any>>? {
-    val m: Method? = findStringMethod(repo, "observeConversation", "observeMessages")
-    val result = m?.invoke(repo, peerUid) ?: return null
-    return when (result) {
-        is Flow<*> -> result as Flow<List<Any>> // asumimos que emite List<*>
-        else -> null
-    }
-}
-
-// Invoca repo.sendText(peerUid, text) o variantes
-private fun trySendText(repo: Any, peerUid: String, text: String) {
-    // Prioridad: sendText, sendMessage
-    val m: Method? = repo.javaClass.methods.firstOrNull {
-        (it.name == "sendText" || it.name == "sendMessage") &&
-                it.parameterCount == 2 &&
-                it.parameterTypes[0] == String::class.java &&
-                it.parameterTypes[1] == String::class.java
-    }
-    m?.invoke(repo, peerUid, text)
-}
-
-/* ===========================================================
-   Modelos/UI helpers
-   =========================================================== */
+/* ======= resto (burbujas/lista/helpers) ======= */
 
 private data class MessageUi(
     val id: String,
@@ -215,43 +240,6 @@ private sealed class ConvListItem {
     data class MessageItem(val msg: MessageUi) : ConvListItem()
 }
 
-// Convierte un objeto de tu capa de datos a MessageUi usando reflexión suave
-private fun toMessageUi(m: Any, myUid: String): MessageUi? = runCatching {
-    val cls = m.javaClass
-    val id: String? =
-        (cls.methods.firstOrNull { it.name == "getId" && it.parameterCount == 0 }?.invoke(m) as? String)
-            ?: cls.declaredFields.firstOrNull { it.name == "id" }?.let { f ->
-                f.isAccessible = true; f.get(m) as? String
-            }
-
-    val fromUid: String? =
-        (cls.methods.firstOrNull { it.name == "getFromUid" && it.parameterCount == 0 }?.invoke(m) as? String)
-            ?: cls.declaredFields.firstOrNull { it.name == "fromUid" }?.let { f ->
-                f.isAccessible = true; f.get(m) as? String
-            }
-
-    val text: String? =
-        (cls.methods.firstOrNull { it.name == "getText" && it.parameterCount == 0 }?.invoke(m) as? String)
-            ?: cls.declaredFields.firstOrNull { it.name == "text" }?.let { f ->
-                f.isAccessible = true; f.get(m) as? String
-            }
-
-    val createdAtMillis: Long? = (
-            (cls.methods.firstOrNull { it.name == "getCreatedAt" && it.parameterCount == 0 }?.invoke(m) as? Number)?.toLong()
-                ?: cls.declaredFields.firstOrNull { it.name == "createdAt" }?.let { f ->
-                    f.isAccessible = true; (f.get(m) as? Number)?.toLong()
-                }
-            )
-
-    if (fromUid == null || text == null || createdAtMillis == null) null
-    else MessageUi(
-        id = id ?: "${createdAtMillis}_${text.hashCode()}",
-        text = text,
-        isMine = fromUid == myUid,
-        timestamp = createdAtMillis
-    )
-}.getOrNull()
-
 private fun withDayHeaders(messagesDesc: List<MessageUi>): List<ConvListItem> {
     if (messagesDesc.isEmpty()) return emptyList()
     val out = mutableListOf<ConvListItem>()
@@ -261,7 +249,7 @@ private fun withDayHeaders(messagesDesc: List<MessageUi>): List<ConvListItem> {
         val (key, title) = dayKeyAndTitle(m.timestamp, now)
         if (key != currentKey) {
             currentKey = key
-            out += ConvListItem.DayHeader(key = key, title = title)
+            out += ConvListItem.DayHeader(key, title)
         }
         out += ConvListItem.MessageItem(m)
     }
@@ -271,11 +259,9 @@ private fun withDayHeaders(messagesDesc: List<MessageUi>): List<ConvListItem> {
 private fun dayKeyAndTitle(ts: Long, now: Long, locale: Locale = Locale.getDefault()): Pair<String, String> {
     val calNow = Calendar.getInstance(locale).apply { timeInMillis = now }
     val calTs = Calendar.getInstance(locale).apply { timeInMillis = ts }
-
     val sameYear = calNow.get(Calendar.YEAR) == calTs.get(Calendar.YEAR)
     val dayDiff = calNow.get(Calendar.DAY_OF_YEAR) - calTs.get(Calendar.DAY_OF_YEAR)
     val key = "%04d-%03d".format(calTs.get(Calendar.YEAR), calTs.get(Calendar.DAY_OF_YEAR))
-
     val title = when {
         sameYear && dayDiff == 0 -> "Hoy"
         sameYear && dayDiff == 1 -> "Ayer"
@@ -283,10 +269,6 @@ private fun dayKeyAndTitle(ts: Long, now: Long, locale: Locale = Locale.getDefau
     }
     return key to title
 }
-
-/* ===========================================================
-   Composables de lista e ítems
-   =========================================================== */
 
 @Composable
 private fun MessagesList(
@@ -296,7 +278,7 @@ private fun MessagesList(
 ) {
     LazyColumn(
         modifier = modifier,
-        reverseLayout = true, // últimos abajo
+        reverseLayout = true,
         state = listState,
         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp)
@@ -329,21 +311,19 @@ private fun MessagesList(
 @Composable
 private fun DayHeader(title: String) {
     val color = MaterialTheme.colorScheme.onSurfaceVariant
-    Box(
-        modifier = Modifier.fillMaxWidth(),
-        contentAlignment = Alignment.Center
+    Surface(
+        tonalElevation = 2.dp,
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 2.dp)
     ) {
-        Surface(
-            tonalElevation = 2.dp,
-            shape = RoundedCornerShape(12.dp),
-            color = MaterialTheme.colorScheme.surfaceVariant
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
         ) {
-            Text(
-                text = title,
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
-                style = MaterialTheme.typography.labelMedium,
-                color = color
-            )
+            Text(title, style = MaterialTheme.typography.labelSmall, color = color)
         }
     }
 }
@@ -354,26 +334,15 @@ private fun MessageBubble(
     isMine: Boolean,
     timestamp: Long,
 ) {
-    val maxWidthFraction = 0.85f
     val bg = if (isMine) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant
     val content = contentColorFor(bg)
     val hAlign: Alignment.Horizontal = if (isMine) Alignment.End else Alignment.Start
-
-    // Esquinas diferenciadas para mine vs peer
-    val shape = if (isMine) {
-        RoundedCornerShape(
-            topStart = 18.dp, topEnd = 4.dp,
-            bottomEnd = 18.dp, bottomStart = 18.dp
-        )
-    } else {
-        RoundedCornerShape(
-            topStart = 4.dp, topEnd = 18.dp,
-            bottomEnd = 18.dp, bottomStart = 18.dp
-        )
-    }
+    val shape = RoundedCornerShape(18.dp)
 
     Column(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 8.dp),
         horizontalAlignment = hAlign
     ) {
         Surface(
@@ -383,21 +352,23 @@ private fun MessageBubble(
             tonalElevation = 1.dp,
             shadowElevation = 0.dp,
             modifier = Modifier
-                .fillMaxWidth(maxWidthFraction)
+                .fillMaxWidth(0.85f)
                 .clip(shape)
         ) {
             Text(
                 text = text,
                 modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                style = MaterialTheme.typography.bodyLarge,
+                style = MaterialTheme.typography.bodyMedium,
                 softWrap = true,
-                overflow = TextOverflow.Clip // romper palabras largas
+                overflow = androidx.compose.ui.text.style.TextOverflow.Clip
             )
         }
         val timeStr = remember(timestamp) { timeHHmm(timestamp) }
         Text(
             text = timeStr,
-            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+            modifier = Modifier
+                .padding(horizontal = 6.dp, vertical = 2.dp)
+                .alpha(0.7f),
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -414,14 +385,11 @@ private fun EmptyConversation() {
     ) {
         Text(
             text = "Aún no hay mensajes",
+            style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
     }
 }
-
-/* ===========================================================
-   Barra de input
-   =========================================================== */
 
 @Composable
 private fun InputBar(
@@ -440,7 +408,7 @@ private fun InputBar(
             value = value,
             onValueChange = onValueChange,
             modifier = Modifier.weight(1f),
-            placeholder = { Text("Escribe un mensaje…") },
+            placeholder = { Text("Escribe un mensaje…", style = MaterialTheme.typography.bodyMedium) },
             minLines = 1,
             maxLines = 4,
             keyboardOptions = KeyboardOptions(
@@ -464,60 +432,15 @@ private fun InputBar(
     }
 }
 
-/* ===========================================================
-   Helpers de formato
-   =========================================================== */
-
 private fun timeHHmm(ts: Long, locale: Locale = Locale.getDefault()): String {
     if (ts <= 0) return "—"
     return runCatching { SimpleDateFormat("HH:mm", locale).format(Date(ts)) }.getOrDefault("—")
 }
 
-/* ===========================================================
-   Previews (mock) – no tocan tu repo
-   =========================================================== */
-
-@androidx.compose.ui.tooling.preview.Preview(name = "Conversation — Claro", showBackground = true)
-@Composable
-private fun PreviewConversationLight() {
-    MaterialTheme { PreviewContent() }
-}
-
-@androidx.compose.ui.tooling.preview.Preview(name = "Conversation — Oscuro", showBackground = true)
-@Composable
-private fun PreviewConversationDark() {
-    MaterialTheme(colorScheme = darkColorScheme()) { PreviewContent() }
-}
-
-@Composable
-private fun PreviewContent() {
+private fun relative(ts: Long): String {
     val now = System.currentTimeMillis()
-    val msgs = listOf(
-        MessageUi("1", "¡Hola! ¿Cómo va todo?", false, now - 5 * 60_000),
-        MessageUi("2", "Todo bien, ¿y tú? 😊", true, now - 4 * 60_000),
-        MessageUi("3", "Bastante ocupado, te escribo luego.", false, now - 3 * 60_000),
-        MessageUi("4", "Perfecto, gracias.", true, now - 2 * 60_000),
-        MessageUi("5", "Dale, allí estaré.", false, now - 60_000),
-        MessageUi("6", "Texto sin espaciosssssssssssssssssssssssssssssssssssssss", true, now - 30_000),
-    ).sortedByDescending { it.timestamp }
-
-    val items = withDayHeaders(msgs)
-    val listState = rememberLazyListState()
-
-    Column(Modifier.fillMaxSize()) {
-        TopAppBar(
-            title = { Text("Peer Name") },
-            navigationIcon = { IconButton(onClick = {}) { Icon(Icons.Default.ArrowBack, contentDescription = null) } }
-        )
-        MessagesList(items, listState, Modifier.weight(1f))
-        InputBar(
-            value = "", onValueChange = {}, onSend = {},
-            enabled = true, canSend = false,
-            modifier = Modifier
-                .fillMaxWidth()
-                .navigationBarsPadding()
-                .imePadding()
-                .padding(horizontal = 12.dp, vertical = 8.dp)
-        )
-    }
+    return android.text.format.DateUtils.getRelativeTimeSpanString(
+        ts, now, android.text.format.DateUtils.MINUTE_IN_MILLIS,
+        android.text.format.DateUtils.FORMAT_ABBREV_RELATIVE
+    ).toString()
 }

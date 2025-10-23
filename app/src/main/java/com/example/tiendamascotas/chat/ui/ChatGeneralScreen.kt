@@ -3,21 +3,25 @@
 
 package com.example.tiendamascotas.chat.ui
 
+import android.text.format.DateUtils
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Chat
-import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
+import androidx.compose.material3.Divider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -25,308 +29,200 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavHostController
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
+import com.example.tiendamascotas.ServiceLocator
+import com.example.tiendamascotas.domain.repository.ChatRepository
+import com.example.tiendamascotas.domain.repository.ChatThread
+import com.example.tiendamascotas.domain.repository.UserPresence
 import com.google.firebase.auth.FirebaseAuth
-import com.google.firebase.firestore.ListenerRegistration
-import com.google.firebase.firestore.Query
-import com.google.firebase.firestore.ktx.firestore
-import com.google.firebase.ktx.Firebase
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.tasks.await
-import java.text.SimpleDateFormat
-import java.util.Calendar
-import java.util.Date
-import java.util.Locale
-import kotlin.math.absoluteValue
-
-private const val AI_UID = "petshop_ai" // UID reservado para el bot
 
 private enum class ChatSegment { Open, Closed }
+private const val AI_UID = "petshop_ai"
 
-data class ChatThreadUi(
+private data class ThreadUi(
     val peerUid: String,
-    val lastMessage: String,
-    val unread: Int,
-    val updatedAt: Long,
-    val closed: Boolean? // puede venir nulo si el campo no existe aún
+    val displayName: String?,
+    val photoUrl: String?,
+    val lastMessage: String?,
+    val updatedAt: Long?,
+    val unreadCount: Int?
 )
-
-data class UserUi(
-    val uid: String,
-    val displayName: String,
-    val photoUrl: String?
-)
-
-/* ===================== Pantalla principal ===================== */
 
 @Composable
-fun ChatGeneralScreen(nav: NavHostController) {
-    val myUid: String? = FirebaseAuth.getInstance().currentUser?.uid
-    val scope = rememberCoroutineScope()
+fun ChatGeneralScreen(
+    nav: NavHostController,
+    repo: ChatRepository = ServiceLocator.chat,
+    auth: FirebaseAuth = FirebaseAuth.getInstance()
+) {
+    val currentUid = auth.currentUser?.uid
 
-    var showSearch by remember { mutableStateOf(false) }
-    var query by remember { mutableStateOf("") }
-    var searchResults: List<UserUi> by remember { mutableStateOf(emptyList()) }
-
-    var threads: List<ChatThreadUi> by remember { mutableStateOf(emptyList()) }
-    var profiles: Map<String, UserUi> by remember { mutableStateOf(emptyMap()) }
-    var errorMsg: String? by remember { mutableStateOf(null) }
-
-    // ===== Estado local persistible para closed cuando el doc no lo tenga =====
-    // Guardamos como String "uid:1|uid2:0" en rememberSaveable para máxima compatibilidad.
-    var closedOverridesEncoded by rememberSaveable { mutableStateOf("") }
-    val closedOverrides: Map<String, Boolean> by remember(closedOverridesEncoded) {
-        mutableStateOf(decodeClosedMap(closedOverridesEncoded))
-    }
-    // TODO: Persistir el campo "closed" en Firestore cuando hoy no exista en el doc (estado local por ahora).
-
-    // Segmento seleccionado (Open por defecto), sí saveable
     var segment by rememberSaveable { mutableStateOf(ChatSegment.Open) }
+    var showSearch by remember { mutableStateOf(false) }
+    var query by rememberSaveable { mutableStateOf("") }
 
-    // Estado de scroll recordado
+    // Estado local para "closed" (sin persistir aún)
+    var closedOverridesEncoded by rememberSaveable { mutableStateOf("") }
+    val closedOverrides by remember(closedOverridesEncoded) { mutableStateOf(decodeClosedMap(closedOverridesEncoded)) }
+
     val listState: LazyListState = rememberLazyListState()
 
-    if (myUid == null) {
-        Scaffold(
-            topBar = {
-                TopAppBar(
-                    title = { Text("Chats") },
-                    navigationIcon = {
-                        IconButton(onClick = { nav.popBackStack() }) {
-                            Icon(Icons.Default.ArrowBack, contentDescription = "Atrás")
-                        }
-                    }
-                )
+    var threads by remember { mutableStateOf(listOf<ThreadUi>()) }
+    var reloadKey by remember { mutableStateOf(0) }
+
+    val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+
+    LaunchedEffect(currentUid, repo, reloadKey) {
+        if (currentUid == null) {
+            threads = emptyList()
+            return@LaunchedEffect
+        }
+        try {
+            repo.observeThreadsFor(currentUid).collect { list ->
+                threads = list.map { it.toUi() }
             }
-        ) { padd ->
-            Box(
-                Modifier
-                    .fillMaxSize()
-                    .padding(padd),
-                contentAlignment = Alignment.Center
-            ) {
-                Text("Inicia sesión para ver tus chats")
+        } catch (_: Throwable) {
+            scope.launch {
+                val res = snackbarHostState.showSnackbar(
+                    message = "Error al cargar chats",
+                    actionLabel = "Reintentar",
+                    withDismissAction = true
+                )
+                if (res.name == "ActionPerformed") reloadKey++
             }
         }
-        return
     }
 
-    fun Any?.toMillis(): Long = when (this) {
-        is com.google.firebase.Timestamp -> this.toDate().time
-        is Number -> this.toLong()
-        is Map<*, *> -> ((this["seconds"] as? Number)?.toLong() ?: 0L) * 1000
-        else -> 0L
-    }
-
-    // ==== Listener Firestore: /users/{myUid}/chats (ordenado por updatedAt) ====
-    DisposableEffect(myUid) {
-        var reg: ListenerRegistration? = null
-        reg = Firebase.firestore
-            .collection("users").document(myUid)
-            .collection("chats")
-            .orderBy("updatedAt", Query.Direction.DESCENDING)
-            .addSnapshotListener { snap, err ->
-                if (err != null) {
-                    errorMsg = err.message
-                    return@addSnapshotListener
-                }
-                if (snap == null) return@addSnapshotListener
-
-                val mapped: List<ChatThreadUi> = snap.documents.map { d ->
-                    val peer = (d.getString("peerUid") ?: d.id).orEmpty()
-                    val last = d.getString("lastMessage").orEmpty()
-                    val unread = (d.getLong("unreadCount") ?: 0L).toInt().coerceAtLeast(0)
-                    val updated = d.get("updatedAt").toMillis()
-                    val closedFromDoc = d.getBoolean("closed")
-                    ChatThreadUi(peer, last, unread, updated, closedFromDoc)
-                }
-                threads = mapped
-
-                // Cargar perfiles faltantes
-                scope.launch {
-                    val current = profiles.toMutableMap()
-                    for (t in mapped) {
-                        if (!current.containsKey(key = t.peerUid)) {
-                            runCatching {
-                                val doc = Firebase.firestore.collection("users").document(t.peerUid).get().await()
-                                if (doc.exists()) {
-                                    current[t.peerUid] = UserUi(
-                                        uid = t.peerUid,
-                                        displayName = doc.getString("displayName") ?: "Usuario",
-                                        photoUrl = doc.getString("photoUrl")
-                                    )
-                                } else {
-                                    current[t.peerUid] = UserUi(t.peerUid, "Usuario", null)
-                                }
-                            }.onFailure {
-                                current[t.peerUid] = UserUi(t.peerUid, "Usuario", null)
-                            }
-                        }
-                    }
-                    profiles = current.toMap()
-                }
-            }
-
-        onDispose { reg?.remove() }
-    }
-
-    // ==== Búsqueda (se mantiene la existente) ====
-    LaunchedEffect(showSearch, query, myUid) {
-        if (!showSearch) { searchResults = emptyList(); return@LaunchedEffect }
-        val q = query.trim().lowercase(Locale.ROOT)
-        if (q.length < 2) { searchResults = emptyList(); return@LaunchedEffect }
-
-        runCatching {
-            val snap = Firebase.firestore.collection("users")
-                .orderBy("displayNameLower")
-                .startAt(q)
-                .endAt(q + "\uf8ff")
-                .limit(30)
-                .get()
-                .await()
-
-            val list = buildList {
-                for (d in snap.documents) {
-                    val id = d.id
-                    if (id != myUid && id != AI_UID) {
-                        add(
-                            UserUi(
-                                uid = id,
-                                displayName = d.getString("displayName") ?: "Usuario",
-                                photoUrl = d.getString("photoUrl")
-                            )
-                        )
-                    }
-                }
-            }
-            searchResults = list
-        }.onFailure { errorMsg = it.message }
-    }
-
-    // Helper: ¿está cerrado este hilo?
-    fun isThreadClosed(t: ChatThreadUi): Boolean {
-        return t.closed ?: closedOverrides[t.peerUid] ?: false
-    }
-
-    // Lista visible derivada (segmento Open/Closed; orden original se mantiene)
-    val visibleThreads: List<ChatThreadUi> by remember(threads, segment, closedOverrides) {
+    val visibleThreads by remember(threads, segment, closedOverrides, query, showSearch) {
         derivedStateOf {
-            threads.filter { t ->
-                val closed = isThreadClosed(t)
+            val base = threads.filter { t ->
+                val isClosed = closedOverrides[t.peerUid] ?: false
                 when (segment) {
-                    ChatSegment.Open -> !closed
-                    ChatSegment.Closed -> closed
+                    ChatSegment.Open -> !isClosed
+                    ChatSegment.Closed -> isClosed
                 }
             }
+            if (showSearch && query.isNotBlank()) {
+                val q = query.trim().lowercase()
+                base.filter { t ->
+                    (t.displayName ?: t.peerUid).lowercase().contains(q) ||
+                            t.peerUid.lowercase().contains(q) ||
+                            (t.lastMessage ?: "").lowercase().contains(q)
+                }
+            } else base
         }
     }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Chats") },
-                navigationIcon = {
-                    IconButton(onClick = { nav.popBackStack() }) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Atrás")
-                    }
-                },
+                title = { Text("Chats", style = MaterialTheme.typography.titleLarge) },
                 actions = {
                     IconButton(onClick = { showSearch = !showSearch }) {
-                        Icon(Icons.Default.Search, contentDescription = "Buscar usuarios")
+                        Icon(Icons.Default.Search, contentDescription = "Buscar")
                     }
                 }
             )
-        }
+        },
+        snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { padd ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padd)
+                .navigationBarsPadding()
         ) {
-            // Barra de segmentos Open / Closed
-            SegmentedFilter(
-                segment = segment,
-                onSelect = { segment = it }
-            )
-
-            if (errorMsg != null) {
-                Text(
-                    text = "Aviso: $errorMsg",
-                    color = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
-                )
+            SingleChoiceSegmentedButtonRow(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
+            ) {
+                SegmentedButton(
+                    selected = segment == ChatSegment.Open,
+                    onClick = { segment = ChatSegment.Open },
+                    shape = SegmentedButtonDefaults.itemShape(0, 2)
+                ) { Text("Open", style = MaterialTheme.typography.labelSmall) }
+                SegmentedButton(
+                    selected = segment == ChatSegment.Closed,
+                    onClick = { segment = ChatSegment.Closed },
+                    shape = SegmentedButtonDefaults.itemShape(1, 2)
+                ) { Text("Closed", style = MaterialTheme.typography.labelSmall) }
             }
 
             if (showSearch) {
-                SearchBar(
-                    query = query,
-                    onQueryChange = { query = it },
-                    onClose = { showSearch = false; query = "" }
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp),
+                    singleLine = true,
+                    label = { Text("Buscar en tus chats…", style = MaterialTheme.typography.labelSmall) }
                 )
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(bottom = 16.dp),
-                    state = listState
-                ) {
-                    items(searchResults, key = { it.uid }) { user ->
-                        UserRow(
-                            user = user,
-                            onClick = { nav.navigate("conversation/${user.uid}") }
+                Spacer(Modifier.height(6.dp))
+            }
+
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(vertical = 8.dp),
+                state = listState
+            ) {
+                item(key = "petshop-ia") {
+                    ChatRow(
+                        peerUid = AI_UID,
+                        repo = repo,
+                        avatarUrl = null,
+                        title = "PetShop IA 🤖",
+                        subtitle = "Asistente virtual",
+                        unread = 0,
+                        updatedAt = null,
+                        onClick = { nav.navigate("conversation/$AI_UID") }
+                    )
+                    DividerIndent()
+                }
+
+                if (visibleThreads.isEmpty()) {
+                    item(key = "empty-${segment.name}") {
+                        EmptyState(
+                            text = if (segment == ChatSegment.Open) "Aún no tienes conversaciones"
+                            else "Sin conversaciones cerradas"
                         )
                     }
-                }
-            } else {
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(vertical = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(2.dp),
-                    state = listState
-                ) {
-                    // Chat fijo IA
-                    item(key = "petshop-ia") {
+                } else {
+                    itemsIndexed(visibleThreads, key = { _, it -> it.peerUid }) { index, t ->
                         ChatRow(
-                            avatarUrl = null,
-                            title = "PetShop IA 🤖",
-                            subtitle = "Asistente virtual",
-                            unread = 0,
-                            updatedAt = null,
-                            onClick = { nav.navigate("conversation/$AI_UID") }
+                            peerUid = t.peerUid,
+                            repo = repo,
+                            avatarUrl = t.photoUrl,
+                            title = (t.displayName ?: t.peerUid).ifBlank { t.peerUid },
+                            subtitle = (t.lastMessage ?: "—").ifBlank { "—" },
+                            unread = (t.unreadCount ?: 0).coerceAtLeast(0),
+                            updatedAt = t.updatedAt,
+                            onClick = { nav.navigate("conversation/${t.peerUid}") }
                         )
-                    }
-
-                    if (visibleThreads.isEmpty()) {
-                        item(key = "empty-${segment.name}") {
-                            EmptyState(
-                                text = if (segment == ChatSegment.Open) "No chats Open" else "No chats Closed"
-                            )
-                        }
-                    } else {
-                        items(visibleThreads, key = { it.peerUid }) { t ->
-                            val u: UserUi? = profiles[t.peerUid]
-                            ChatRow(
-                                avatarUrl = u?.photoUrl,
-                                title = (u?.displayName ?: t.peerUid).ifBlank { t.peerUid },
-                                subtitle = t.lastMessage.ifBlank { "—" },
-                                unread = t.unread.coerceAtLeast(0),
-                                updatedAt = t.updatedAt.takeIf { millis -> millis > 0L },
-                                onClick = { nav.navigate("conversation/${t.peerUid}") }
-                            )
+                        if (index < visibleThreads.lastIndex) {
+                            DividerIndent()
                         }
                     }
                 }
@@ -335,92 +231,21 @@ fun ChatGeneralScreen(nav: NavHostController) {
     }
 }
 
-/* ===================== Componentes UI ===================== */
+/* --------------------- Mappers / Utils --------------------- */
 
-@Composable
-private fun SegmentedFilter(
-    segment: ChatSegment,
-    onSelect: (ChatSegment) -> Unit
-) {
-    SingleChoiceSegmentedButtonRow(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 8.dp)
-    ) {
-        SegmentedButton(
-            selected = segment == ChatSegment.Open,
-            onClick = { onSelect(ChatSegment.Open) },
-            shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2)
-        ) { Text("Open") }
-
-        SegmentedButton(
-            selected = segment == ChatSegment.Closed,
-            onClick = { onSelect(ChatSegment.Closed) },
-            shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2)
-        ) { Text("Closed") }
-    }
-}
-
-@Composable
-private fun SearchBar(
-    query: String,
-    onQueryChange: (String) -> Unit,
-    onClose: () -> Unit
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(12.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        OutlinedTextField(
-            value = query,
-            onValueChange = onQueryChange,
-            modifier = Modifier.weight(1f),
-            singleLine = true,
-            label = { Text("Buscar usuarios…") },
-            trailingIcon = {
-                if (query.isNotEmpty()) {
-                    IconButton(onClick = { onQueryChange("") }) {
-                        Icon(Icons.Default.Clear, contentDescription = "Limpiar")
-                    }
-                }
-            }
-        )
-        Spacer(Modifier.width(8.dp))
-        TextButton(onClick = onClose) { Text("Cerrar") }
-    }
-}
-
-@Composable
-private fun UserRow(
-    user: UserUi,
-    onClick: () -> Unit
-) {
-    ListItem(
-        modifier = Modifier
-            .fillMaxWidth()
-            .heightIn(min = 56.dp) // ≥48dp táctil
-            .clickable(onClick = onClick),
-        leadingContent = {
-            Avatar(
-                avatarUrl = user.photoUrl,
-                fallbackIcon = Icons.Default.Chat,
-                contentDesc = "Avatar de ${user.displayName}"
-            )
-        },
-        headlineContent = {
-            Text(
-                text = user.displayName,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
-    )
-}
+private fun ChatThread.toUi() = ThreadUi(
+    peerUid = peerUid,
+    displayName = displayName,
+    photoUrl = photoUrl,
+    lastMessage = lastMessage,
+    updatedAt = updatedAt,
+    unreadCount = unreadCount
+)
 
 @Composable
 private fun ChatRow(
+    peerUid: String,
+    repo: ChatRepository,
     avatarUrl: String?,
     title: String,
     subtitle: String,
@@ -428,58 +253,80 @@ private fun ChatRow(
     updatedAt: Long?,
     onClick: () -> Unit
 ) {
+    val presence by repo.observePresence(peerUid).collectAsState(initial = UserPresence(false, null))
+    val relTime: String = remember(updatedAt) { formatRelativeTime(updatedAt) }
+    val lastSeenStr: String = remember(presence) {
+        if (presence.isOnline) "En línea"
+        else presence.lastSeen?.let { "Activo ${formatRelativeTime(it)}" } ?: "—"
+    }
+
     ListItem(
         modifier = Modifier
             .fillMaxWidth()
-            .heightIn(min = 72.dp) // ≥48dp táctil
-            .clickable(onClick = onClick),
+            .heightIn(min = 72.dp)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 8.dp),
         leadingContent = {
-            Avatar(
-                avatarUrl = avatarUrl,
-                fallbackIcon = Icons.Default.Chat,
-                contentDesc = "Avatar de $title"
-            )
+            Box {
+                Avatar(
+                    avatarUrl = avatarUrl,
+                    fallbackIcon = Icons.Default.Chat,
+                    contentDesc = "Avatar de $title"
+                )
+                if (presence.isOnline) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .size(12.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFF2ECC71)) // verde legible
+                            .border(BorderStroke(1.dp, MaterialTheme.colorScheme.surface), CircleShape)
+                    )
+                }
+            }
         },
         headlineContent = {
             Text(
                 text = title,
                 maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+                overflow = TextOverflow.Ellipsis,
+                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold)
             )
         },
         supportingContent = {
             Text(
-                text = subtitle.ifBlank { "—" },
+                text = subtitle,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
+                style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         },
         trailingContent = {
             Column(horizontalAlignment = Alignment.End) {
-                val rel: String = updatedAt?.let { ts ->
-                    // cálculo “puro UI” y barato
-                    remember(ts) { relativeTimeShort(ts, System.currentTimeMillis()) }
-                } ?: "—"
                 Text(
-                    text = rel,
+                    text = relTime,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    text = lastSeenStr,
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Spacer(Modifier.height(6.dp))
                 if (unread > 0) {
+                    val badgeText = if (unread > 99) "99+" else unread.toString()
                     BadgedBox(
                         badge = {
-                            Badge {
-                                Text(
-                                    if (unread > 99) "99+" else unread.toString(),
-                                    style = MaterialTheme.typography.labelSmall
-                                )
-                            }
+                            Badge(
+                                modifier = Modifier.semantics {
+                                    contentDescription = "$badgeText mensajes sin leer"
+                                }
+                            ) { Text(badgeText, style = MaterialTheme.typography.labelSmall) }
                         }
-                    ) {
-                        Spacer(Modifier.size(1.dp)) // ancla mínima para el BadgedBox
-                    }
+                    ) { Spacer(Modifier.size(1.dp)) }
                 }
             }
         }
@@ -492,13 +339,23 @@ private fun Avatar(
     fallbackIcon: ImageVector,
     contentDesc: String
 ) {
+    val context = LocalContext.current
+    val borderColor = MaterialTheme.colorScheme.outlineVariant
+
     if (!avatarUrl.isNullOrBlank()) {
         AsyncImage(
-            model = avatarUrl,
+            model = ImageRequest.Builder(context)
+                .data(avatarUrl)
+                .crossfade(true)
+                .size(64)
+                .build(),
             contentDescription = contentDesc,
+            contentScale = ContentScale.Crop,
             modifier = Modifier
                 .size(48.dp)
                 .clip(CircleShape)
+                .background(MaterialTheme.colorScheme.surfaceVariant)
+                .border(BorderStroke(1.dp, borderColor), CircleShape)
                 .semantics { this.contentDescription = contentDesc }
         )
     } else {
@@ -506,7 +363,8 @@ private fun Avatar(
             modifier = Modifier
                 .size(48.dp)
                 .clip(CircleShape)
-                .background(MaterialTheme.colorScheme.surfaceVariant),
+                .background(MaterialTheme.colorScheme.surfaceVariant)
+                .border(BorderStroke(1.dp, borderColor), CircleShape),
             contentAlignment = Alignment.Center
         ) {
             Icon(
@@ -518,105 +376,49 @@ private fun Avatar(
     }
 }
 
-@Composable
-private fun EmptyState(text: String) {
-    Box(
+@Composable private fun DividerIndent() {
+    Divider(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 24.dp),
-        contentAlignment = Alignment.Center
+            .padding(start = 80.dp),
+        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
+        thickness = 1.dp
+    )
+}
+
+@Composable
+private fun EmptyState(text: String) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 24.dp, vertical = 48.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
     ) {
+        Icon(
+            imageVector = Icons.Default.Chat,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(48.dp)
+        )
+        Spacer(Modifier.height(12.dp))
         Text(
             text = text,
+            style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
     }
 }
 
-/* ===================== Helpers ===================== */
+private fun decodeClosedMap(raw: String): Map<String, Boolean> =
+    if (raw.isBlank()) emptyMap()
+    else raw.split("|").mapNotNull { tok ->
+        val i = tok.indexOf(':'); if (i <= 0 || i >= tok.lastIndex) null else tok.substring(0, i) to (tok.substring(i + 1) == "1")
+    }.toMap()
 
-// Codificación simple para rememberSaveable
-private fun decodeClosedMap(raw: String): Map<String, Boolean> {
-    if (raw.isBlank()) return emptyMap()
-    val pairs = raw.split("|")
-    val map = HashMap<String, Boolean>(pairs.size)
-    for (tok in pairs) {
-        val idx = tok.indexOf(':')
-        if (idx > 0 && idx < tok.lastIndex) {
-            val key = tok.substring(0, idx)
-            val v = tok.substring(idx + 1) == "1"
-            map[key] = v
-        }
-    }
-    return map
-}
-
-// Formato de hora relativa (corto), puramente UI.
-private fun relativeTimeShort(tsMillis: Long, nowMillis: Long, locale: Locale = Locale.getDefault()): String {
-    val diff = (nowMillis - tsMillis)
-    val diffAbs = diff.absoluteValue
-
-    val oneSecond = 1000L
-    val oneMinute = 60 * oneSecond
-    val oneHour = 60 * oneMinute
-    val oneDay = 24 * oneHour
-
-    if (diffAbs < oneMinute) return "Ahora"
-    if (diffAbs < oneHour) {
-        val m = (diffAbs / oneMinute).toInt()
-        return "${m}m"
-    }
-    if (diffAbs < oneDay) {
-        val h = (diffAbs / oneHour).toInt()
-        return "${h}h"
-    }
-
-    val calNow = Calendar.getInstance(locale).apply { timeInMillis = nowMillis }
-    val calTs = Calendar.getInstance(locale).apply { timeInMillis = tsMillis }
-    val sameYear = calNow.get(Calendar.YEAR) == calTs.get(Calendar.YEAR)
-
-    val isYesterday = sameYear &&
-            calNow.get(Calendar.DAY_OF_YEAR) - calTs.get(Calendar.DAY_OF_YEAR) == 1
-    if (isYesterday) return "Ayer"
-
-    val pattern = if (sameYear) "dd/MM" else "dd/MM/yy"
-    return runCatching { SimpleDateFormat(pattern, locale).format(Date(tsMillis)) }
-        .getOrDefault("—")
-}
-
-/* ===================== Previews opcionales ===================== */
-
-@androidx.compose.ui.tooling.preview.Preview(name = "Inbox Claro")
-@Composable
-private fun PreviewInboxLight() {
-    MaterialTheme {
-        Column {
-            SegmentedFilter(ChatSegment.Open) {}
-            ChatRow(
-                avatarUrl = null,
-                title = "María López",
-                subtitle = "¿Listo para mañana?",
-                unread = 3,
-                updatedAt = System.currentTimeMillis() - 15 * 60 * 1000, // 15m
-                onClick = {}
-            )
-            ChatRow(
-                avatarUrl = null,
-                title = "Carlos",
-                subtitle = "—",
-                unread = 120,
-                updatedAt = System.currentTimeMillis() - 30 * 60 * 60 * 1000, // 30h
-                onClick = {}
-            )
-            EmptyState("No chats Open")
-        }
-    }
-}
-
-@androidx.compose.ui.tooling.preview.Preview(name = "Inbox Oscuro")
-@Composable
-private fun PreviewInboxDark() {
-    androidx.compose.material3.MaterialTheme(colorScheme = androidx.compose.material3.darkColorScheme()) {
-        PreviewInboxLight()
-    }
+/** Hora relativa corta usando DateUtils. */
+private fun formatRelativeTime(ts: Long?, now: Long = System.currentTimeMillis()): String {
+    if (ts == null || ts <= 0) return "—"
+    return DateUtils.getRelativeTimeSpanString(
+        ts, now, DateUtils.MINUTE_IN_MILLIS, DateUtils.FORMAT_ABBREV_RELATIVE
+    ).toString()
 }

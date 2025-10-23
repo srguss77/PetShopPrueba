@@ -6,8 +6,11 @@ import com.example.tiendamascotas.data.repository.impl.FirebaseAuthRepository
 import com.example.tiendamascotas.data.repository.impl.FirestoreReportsRepository
 import com.example.tiendamascotas.data.repository.impl.FirestoreChatRepository
 import com.example.tiendamascotas.domain.repository.ChatRepository
+import com.google.firebase.auth.FirebaseAuth
 object ServiceLocator {
     val auth: AuthRepository by lazy { FirebaseAuthRepository() }
     val reports: ReportsRepository by lazy { FirestoreReportsRepository() }
-    val chat: ChatRepository by lazy { FirestoreChatRepository() }
+    val chat: ChatRepository by lazy {
+        FirestoreChatRepository(FirebaseAuth.getInstance())
+    }
     }
