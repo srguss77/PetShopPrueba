@@ -1,4 +1,3 @@
-// FILE: app/src/main/java/com/example/tiendamascotas/data/repository/impl/FirestoreChatRepository.kt
 package com.example.tiendamascotas.data.repository.impl
 
 import com.example.tiendamascotas.domain.model.ChatMessage
@@ -10,51 +9,34 @@ import com.example.tiendamascotas.domain.repository.UserPublic
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.database.DataSnapshot
 import com.google.firebase.database.DatabaseError
-import com.google.firebase.database.DatabaseReference
+import com.google.firebase.database.FirebaseDatabase
 import com.google.firebase.database.ServerValue
 import com.google.firebase.database.ValueEventListener
-import com.google.firebase.database.ktx.database
-import com.google.firebase.firestore.FieldPath
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.SetOptions
 import com.google.firebase.firestore.ktx.firestore
 import com.google.firebase.ktx.Firebase
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
-import kotlinx.coroutines.flow.channelFlow
-import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.flowOf
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import java.util.Date
-import java.util.LinkedHashMap
 
-/** ⚠️ Importante:
- *  NO declares aquí FirestorePaths. Usa el que ya existe en
- *  app/src/main/java/com/example/tiendamascotas/data/repository/impl/FirestorePaths.kt
- *  (mismo paquete).
+/**
+ * Repositorio Firestore legacy (sigue existiendo para compatibilidad).
+ * En esta rama tu app usa RtdbChatRepository vía ServiceLocator.chat.
  */
-
-/** Rutas de RTDB para presencia/typing. */
-private object RtdbPaths {
-    const val PRESENCE = "presence"
-    const val TYPING = "typing"
-    const val INFO_CONNECTED = ".info/connected"
-}
-
 class FirestoreChatRepository(
     private val auth: FirebaseAuth = FirebaseAuth.getInstance()
 ) : ChatRepository {
 
     private val db = Firebase.firestore
-    private val rtdb = Firebase.database
+    private val rtdb = FirebaseDatabase.getInstance()
 
-    /* ======================== Users search (Firestore) ======================== */
+    /* ===== Usuarios (búsqueda básica) ===== */
     override fun observeUsers(query: String): Flow<List<ChatUser>> = callbackFlow {
         val me = auth.currentUser?.uid
         val q = query.trim().lowercase()
@@ -72,9 +54,7 @@ class FirestoreChatRepository(
         }
 
         val reg = base.addSnapshotListener { snap, err ->
-            if (err != null) {
-                trySend(emptyList()); return@addSnapshotListener
-            }
+            if (err != null) { trySend(emptyList()); return@addSnapshotListener }
             val users = snap?.documents?.mapNotNull { d ->
                 val uid = (d.getString("uid") ?: d.id)
                 if (uid == me) return@mapNotNull null
@@ -90,12 +70,10 @@ class FirestoreChatRepository(
         awaitClose { reg.remove() }
     }.distinctUntilChanged()
 
-    /* ==================== Conversation (messages) - Firestore ==================== */
+    /* ===== Conversación y envío (legacy sobre Firestore) ===== */
     override fun observeConversation(peerUid: String): Flow<List<ChatMessage>> = callbackFlow {
         val me = auth.currentUser?.uid
-        if (me == null) {
-            trySend(emptyList()); close(); return@callbackFlow
-        }
+        if (me == null) { trySend(emptyList()); close(); return@callbackFlow }
 
         val ref = db.collection(FirestorePaths.USERS).document(me)
             .collection(FirestorePaths.CHATS).document(peerUid)
@@ -103,9 +81,7 @@ class FirestoreChatRepository(
             .orderBy("createdAt", Query.Direction.ASCENDING)
 
         val reg = ref.addSnapshotListener { snap, err ->
-            if (err != null) {
-                trySend(emptyList()); return@addSnapshotListener
-            }
+            if (err != null) { trySend(emptyList()); return@addSnapshotListener }
             val list = snap?.documents?.map { d ->
                 ChatMessage(
                     id = d.id,
@@ -164,19 +140,18 @@ class FirestoreChatRepository(
         Unit
     }
 
-    /* ========================= Users public (Firestore) ========================= */
-
-    // Cache LRU (capacidad 200) para perfiles
-    private val userCache = object : LinkedHashMap<String, UserPublic>(200, 0.75f, true) {
-        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, UserPublic>?): Boolean {
-            return size > 200
-        }
+    // NUEVO: marcar leído
+    override suspend fun markThreadRead(peerUid: String) {
+        val me = auth.currentUser?.uid ?: return
+        db.collection(FirestorePaths.USERS).document(me)
+            .collection(FirestorePaths.CHATS).document(peerUid)
+            .update("unreadCount", 0)
+            .await()
     }
-    private val userCacheLock = Any()
 
+    /* ===== Perfiles públicos (Firestore) ===== */
     override fun observeUserPublic(uid: String): Flow<UserPublic?> = callbackFlow {
         if (uid.isBlank()) { trySend(null); close(); return@callbackFlow }
-
         val ref = db.collection(FirestorePaths.USERS).document(uid)
         val reg = ref.addSnapshotListener { snap, _ ->
             val u = if (snap != null && snap.exists()) {
@@ -187,10 +162,6 @@ class FirestoreChatRepository(
                     email = snap.getString("email")
                 )
             } else null
-
-            synchronized(userCacheLock) {
-                if (u != null) userCache[uid] = u else userCache.remove(uid)
-            }
             trySend(u)
         }
         awaitClose { reg.remove() }
@@ -198,152 +169,70 @@ class FirestoreChatRepository(
 
     override fun observeUsersPublic(uids: Set<String>): Flow<Map<String, UserPublic>> = callbackFlow {
         if (uids.isEmpty()) { trySend(emptyMap()); close(); return@callbackFlow }
-
-        // 1) Batch inicial con whereIn(documentId) en chunks de 10 (límite Firestore)
-        val initialJob = launch {
-            val initial = mutableMapOf<String, UserPublic>()
-            val chunks = uids.toList().chunked(10)
-            for (chunk in chunks) {
-                val snap = db.collection(FirestorePaths.USERS)
-                    .whereIn(FieldPath.documentId(), chunk)
-                    .get()
-                    .await()
-                for (d in snap.documents) {
-                    if (d.exists()) {
-                        val u = UserPublic(
-                            uid = d.id,
-                            displayName = d.getString(FirestorePaths.DISPLAY_NAME),
-                            photoUrl = d.getString("photoUrl"),
-                            email = d.getString("email")
-                        )
-                        synchronized(userCacheLock) { userCache[d.id] = u }
-                        initial[d.id] = u
-                    }
-                }
-            }
-            trySend(initial)
-        }
-
-        // 2) Listeners individuales solo para el set
         val regs = mutableMapOf<String, ListenerRegistration>()
+        val cache = mutableMapOf<String, UserPublic>()
         uids.forEach { uid ->
-            regs[uid] = db.collection(FirestorePaths.USERS).document(uid)
+            val r = db.collection(FirestorePaths.USERS).document(uid)
                 .addSnapshotListener { snap, _ ->
-                    val changed = if (snap != null && snap.exists()) {
-                        UserPublic(
+                    if (snap != null && snap.exists()) {
+                        cache[uid] = UserPublic(
                             uid = snap.id,
                             displayName = snap.getString(FirestorePaths.DISPLAY_NAME),
                             photoUrl = snap.getString("photoUrl"),
                             email = snap.getString("email")
                         )
-                    } else null
-
-                    val out = synchronized(userCacheLock) {
-                        if (changed != null) userCache[uid] = changed else userCache.remove(uid)
-                        uids.mapNotNull { id -> userCache[id]?.let { id to it } }.toMap()
+                    } else {
+                        cache.remove(uid)
                     }
-                    trySend(out)
+                    trySend(cache.toMap())
                 }
+            regs[uid] = r
         }
-
-        awaitClose {
-            initialJob.cancel()
-            regs.values.forEach { it.remove() }
-        }
+        awaitClose { regs.values.forEach { it.remove() } }
     }.distinctUntilChanged()
 
-    /* ========================= Threads (enriquecidos) - Firestore ========================= */
-
-    override fun observeThreadsFor(currentUid: String): Flow<List<ChatThread>> = channelFlow {
+    /* ===== Threads enriquecidos (legacy Firestore) ===== */
+    override fun observeThreadsFor(currentUid: String): Flow<List<ChatThread>> = callbackFlow {
         val chatsRef = db.collection(FirestorePaths.USERS)
             .document(currentUid)
             .collection(FirestorePaths.CHATS)
             .orderBy("updatedAt", Query.Direction.DESCENDING)
 
-        var latestBase: List<ChatThread> = emptyList()
-        var latestProfiles: Map<String, UserPublic> = emptyMap()
-        var usersJob: Job? = null
-
         val reg = chatsRef.addSnapshotListener { snap, err ->
-            if (err != null || snap == null) {
-                trySend(emptyList()); return@addSnapshotListener
-            }
-
+            if (err != null || snap == null) { trySend(emptyList()); return@addSnapshotListener }
             val base = snap.documents.map { d ->
                 val peer = (d.getString("peerUid") ?: d.id).orEmpty()
                 val last = d.getString("lastMessage")
                 val updated = d.get("updatedAt").toMillisOrNull()
                 val unread = d.getLong("unreadCount")?.toInt()
-                ChatThread(
-                    peerUid = peer,
-                    lastMessage = last,
-                    updatedAt = updated,
-                    unreadCount = unread
-                )
+                ChatThread(peerUid = peer, lastMessage = last, updatedAt = updated, unreadCount = unread)
             }
-            latestBase = base
+            trySend(base)
+        }
+        awaitClose { reg.remove() }
+    }.distinctUntilChanged()
 
-            val peerSet = base.map { it.peerUid }.toSet()
-
-            usersJob?.cancel()
-            usersJob = launch {
-                observeUsersPublic(peerSet).collectLatest { map ->
-                    latestProfiles = map
-                    val enriched = latestBase.map { t ->
-                        val up = latestProfiles[t.peerUid]
-                        t.copy(displayName = up?.displayName, photoUrl = up?.photoUrl)
-                    }
-                    trySend(enriched)
+    /* ===== Presence & Typing via RTDB (para compatibilidad) ===== */
+    override fun observePresence(uid: String): Flow<UserPresence> {
+        val ref = rtdb.getReference("presence").child(uid)
+        return callbackFlow {
+            val l = object : ValueEventListener {
+                override fun onDataChange(s: DataSnapshot) {
+                    val online = s.child("online").getValue(Boolean::class.java) ?: s.exists()
+                    val lastSeen = s.child("lastSeen").getValue(Long::class.java)
+                        ?: s.child("lastSeen").getValue(Double::class.java)?.toLong()
+                    trySend(UserPresence(online, lastSeen))
                 }
+                override fun onCancelled(error: DatabaseError) { trySend(UserPresence(false, null)) }
             }
-
-            // Emisión inicial con cache si hay
-            val enriched = base.map { t ->
-                val up = latestProfiles[t.peerUid]
-                t.copy(displayName = up?.displayName, photoUrl = up?.photoUrl)
-            }
-            trySend(enriched)
-        }
-
-        awaitClose {
-            reg.remove()
-            usersJob?.cancel()
-        }
-    }.distinctUntilChanged()
-
-    /* =================== Presence & Typing (RTDB) =================== */
-
-    private fun presenceRef(uid: String): DatabaseReference =
-        rtdb.getReference(RtdbPaths.PRESENCE).child(uid)
-
-    private fun typingOutRef(peerUid: String, me: String): DatabaseReference =
-        rtdb.getReference(RtdbPaths.TYPING).child(peerUid).child(me)
-
-    private fun typingInRef(peerUid: String, me: String): DatabaseReference =
-        rtdb.getReference(RtdbPaths.TYPING).child(me).child(peerUid)
-
-    override fun observePresence(uid: String): Flow<UserPresence> = callbackFlow {
-        if (uid.isBlank()) { trySend(UserPresence(false, null)); close(); return@callbackFlow }
-
-        val ref = presenceRef(uid)
-        val listener = object : ValueEventListener {
-            override fun onDataChange(snapshot: DataSnapshot) {
-                val online = snapshot.child("online").getValue(Boolean::class.java)
-                    ?: snapshot.exists()
-                val lastSeen = snapshot.child("lastSeen").getValue(Long::class.java)
-                trySend(UserPresence(online, lastSeen))
-            }
-            override fun onCancelled(error: DatabaseError) {
-                trySend(UserPresence(false, null))
-            }
-        }
-        ref.addValueEventListener(listener)
-        awaitClose { ref.removeEventListener(listener) }
-    }.distinctUntilChanged()
+            ref.addValueEventListener(l)
+            awaitClose { ref.removeEventListener(l) }
+        }.distinctUntilChanged()
+    }
 
     override suspend fun setTyping(peerUid: String, typing: Boolean) {
         val me = auth.currentUser?.uid ?: return
-        val ref = typingOutRef(peerUid, me)
+        val ref = rtdb.getReference("typing").child(peerUid).child(me)
         if (typing) {
             ref.onDisconnect().removeValue()
             ref.setValue(true)
@@ -352,39 +241,39 @@ class FirestoreChatRepository(
         }
     }
 
-    override fun observeTyping(peerUid: String): Flow<Boolean> = callbackFlow {
+    override fun observeTyping(peerUid: String): Flow<Boolean> {
         val me = auth.currentUser?.uid
-        if (me == null || peerUid.isBlank()) { trySend(false); close(); return@callbackFlow }
-
-        val ref = typingInRef(peerUid, me)
-        val listener = object : ValueEventListener {
-            override fun onDataChange(snapshot: DataSnapshot) {
-                trySend(snapshot.exists())
+        if (me == null) return callbackFlow { trySend(false); awaitClose {} }
+        val ref = rtdb.getReference("typing").child(me).child(peerUid)
+        return callbackFlow {
+            val l = object : ValueEventListener {
+                override fun onDataChange(s: DataSnapshot) { trySend(s.exists()).isSuccess }
+                override fun onCancelled(error: DatabaseError) { trySend(false).isSuccess }
             }
-            override fun onCancelled(error: DatabaseError) {
-                trySend(false)
-            }
-        }
-        ref.addValueEventListener(listener)
-        awaitClose { ref.removeEventListener(listener) }
-    }.distinctUntilChanged()
+            ref.addValueEventListener(l)
+            awaitClose { ref.removeEventListener(l) }
+        }.distinctUntilChanged()
+    }
 
     override suspend fun setPresenceOnline() {
         val me = auth.currentUser?.uid ?: return
-        val ref = presenceRef(me)
+        val ref = rtdb.getReference("presence").child(me)
         ref.onDisconnect().setValue(mapOf("online" to false, "lastSeen" to ServerValue.TIMESTAMP))
         ref.setValue(mapOf("online" to true, "lastSeen" to ServerValue.TIMESTAMP))
     }
 
     override suspend fun setPresenceOffline() {
         val me = auth.currentUser?.uid ?: return
-        val ref = presenceRef(me)
+        val ref = rtdb.getReference("presence").child(me)
         ref.setValue(mapOf("online" to false, "lastSeen" to ServerValue.TIMESTAMP))
     }
+
+    // PRONT 10/11: no lo usamos aquí, devolver vacío para compatibilidad
+    override fun observeChatRows(currentUid: String) =
+        callbackFlow<List<ChatRepository.ChatRow>> { trySend(emptyList()); awaitClose { } }
 }
 
-/* ======================= Helpers de conversión ======================= */
-
+/* ===== Helpers ===== */
 private fun Any?.toMillisOrNull(): Long? = when (this) {
     is com.google.firebase.Timestamp -> this.toDate().time
     is Date -> this.time

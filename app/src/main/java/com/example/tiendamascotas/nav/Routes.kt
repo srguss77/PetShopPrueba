@@ -5,10 +5,15 @@ object Routes {
     const val REPORTS = "reports"
     const val CHAT = "chat"
 
-    // ✨ Nueva ruta única de conversación (compat con nav.navigate("conversation/{peerUid}"))
+    // ✅ Ruta del mapa (opción B)
+    const val MAP = "reports/map"
+
+    // Conversación 1–1
     const val CONVERSATION = "conversation/{peerUid}"
 
+    // (Si la usas) perfil con argumento
     const val PROFILE = "profile/{uid}"
+
     object Args {
         const val PeerUid = "peerUid"
     }

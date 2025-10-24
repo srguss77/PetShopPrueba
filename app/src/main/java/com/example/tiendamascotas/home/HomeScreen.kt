@@ -1,3 +1,4 @@
+// FILE: app/src/main/java/com/example/tiendamascotas/home/HomeScreen.kt
 package com.example.tiendamascotas.home
 
 import androidx.compose.foundation.clickable
@@ -21,31 +22,27 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavHostController
 import com.example.tiendamascotas.navigation.Screen
+import com.example.tiendamascotas.nav.Routes
 import com.google.firebase.auth.FirebaseAuth
-import com.google.firebase.firestore.DocumentChange
 import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.ktx.firestore
 import com.google.firebase.ktx.Firebase
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.tasks.await
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(nav: NavHostController) {
     val features = listOf(
         Feature("Reportar", Icons.Filled.Pets, Screen.CreateReport.route),
-        Feature("Mapa", Icons.Filled.Map, Screen.Map.route),
+        // ✅ Mapa usa la constante de Routes (opción B)
+        Feature("Mapa", Icons.Filled.Map, Routes.MAP),
         Feature("Asistente", Icons.Filled.Lightbulb, Screen.CareAssistant.route),
         Feature("Reseñas", Icons.Filled.RateReview, Screen.ReviewsHome.route),
         Feature("Chat", Icons.Filled.Chat, Screen.ChatGeneral.route),
         Feature("Adopciones", Icons.Filled.Favorite, Screen.AdoptionsList.route),
     )
 
-    // Snackbar para avisos in-app
     val snackbarHost = remember { SnackbarHostState() }
-    val scope = rememberCoroutineScope()
-
-    // Contador total de no leídos para badge
     var unreadTotal by remember { mutableStateOf(0) }
 
     Scaffold(
@@ -53,13 +50,10 @@ fun HomeScreen(nav: NavHostController) {
             TopAppBar(
                 title = { Text("Mascotas") },
                 actions = {
-                    // Campanita con badge
                     BadgedBox(
                         badge = {
                             if (unreadTotal > 0) {
-                                Badge {
-                                    Text(if (unreadTotal > 99) "99+" else unreadTotal.toString())
-                                }
+                                Badge { Text(if (unreadTotal > 99) "99+" else unreadTotal.toString()) }
                             }
                         }
                     ) {
@@ -76,7 +70,6 @@ fun HomeScreen(nav: NavHostController) {
         snackbarHost = { SnackbarHost(snackbarHost) }
     ) { innerPadding ->
 
-        // Escucha Firestore para: (1) snackbar de “nuevo mensaje” y (2) actualizar badge
         NewMessageWatcher(
             nav = nav,
             snackbar = snackbarHost,
@@ -124,8 +117,6 @@ private fun FeatureCard(
         shape = MaterialTheme.shapes.extraLarge
     ) {
         Box(Modifier.fillMaxSize()) {
-
-            // Badge opcional en la esquina del card (para el tile de Chat)
             if (badgeCount > 0) {
                 Badge(
                     modifier = Modifier
@@ -135,7 +126,6 @@ private fun FeatureCard(
                     Text(if (badgeCount > 99) "99+" else badgeCount.toString())
                 }
             }
-
             Column(
                 modifier = Modifier
                     .align(Alignment.Center)
@@ -156,17 +146,6 @@ private data class Feature(
     val route: String
 )
 
-/**
- * Escucha en tiempo real:
- * - Suma de no leídos para los badges (campanita y tile de Chat)
- * - Snackbar cuando un hilo se actualiza con nuevos no leídos
- *
- * Requiere en cada chat doc:
- *  - peerUid: String
- *  - lastMessage: String
- *  - updatedAt: Timestamp
- *  - unreadCount: Number (no leídos de ESE hilo, desde la perspectiva del usuario actual)
- */
 @Composable
 private fun NewMessageWatcher(
     nav: NavHostController,
@@ -176,7 +155,6 @@ private fun NewMessageWatcher(
     val scope = rememberCoroutineScope()
     val myUid = remember { FirebaseAuth.getInstance().currentUser?.uid }
 
-    // helper local para evitar crash por tipos viejos
     fun Any?.toMillis(): Long = when (this) {
         is com.google.firebase.Timestamp -> this.toDate().time
         is Number -> this.toLong()
@@ -197,24 +175,21 @@ private fun NewMessageWatcher(
                 .addSnapshotListener { snap, err ->
                     if (err != null || snap == null) return@addSnapshotListener
 
-                    // 1) total no leídos
                     val total = snap.documents.sumOf { (it.getLong("unreadCount") ?: 0L).toInt() }
                     onUnreadTotalChange(total)
 
-                    // 2) ignorar primera carga
                     if (isInitial) {
                         isInitial = false
                         return@addSnapshotListener
                     }
 
-                    // 3) snackbar por cambios con no leídos
                     snap.documentChanges.forEach { dc ->
                         val unread = (dc.document.getLong("unreadCount") ?: 0L).toInt()
                         if (unread <= 0) return@forEach
 
                         val peerUid = dc.document.getString("peerUid") ?: dc.document.id
                         val preview = dc.document.getString("lastMessage") ?: "Mensaje nuevo"
-                        val updatedAtMs = dc.document.get("updatedAt").toMillis() // 👈 seguro
+                        val updatedAtMs = dc.document.get("updatedAt").toMillis()
                         val key = "$peerUid-$updatedAtMs-$unread"
                         if (key == lastKeyNotified) return@forEach
                         lastKeyNotified = key
@@ -227,7 +202,8 @@ private fun NewMessageWatcher(
                                 duration = SnackbarDuration.Short
                             )
                             if (result == SnackbarResult.ActionPerformed) {
-                                nav.navigate("conversation/$peerUid")
+                                // ✅ usa helper consistente
+                                nav.navigate(Routes.conversation(peerUid))
                             }
                         }
                     }

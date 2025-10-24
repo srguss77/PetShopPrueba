@@ -10,6 +10,7 @@ android {
     compileSdk = 36
 
     defaultConfig {
+        resValue("string", "google_maps_key", "AQUI_TU_API_KEY_O_UN_PLACEHOLDER")
         applicationId = "com.example.tiendamascotas"
         minSdk = 24
         targetSdk = 36
@@ -51,6 +52,10 @@ dependencies {
     implementation(libs.androidx.navigation.compose)
     implementation(libs.androidx.compose.foundation)
     implementation(libs.androidx.foundation)
+    implementation("org.osmdroid:osmdroid-android:6.1.18")
+    implementation("com.google.android.gms:play-services-location:21.0.1") // para obtener ubicación actual
+    implementation("androidx.compose.material:material-icons-extended")   // por si usas Icons.Default.*
+
     debugImplementation(libs.androidx.compose.ui.tooling)
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
