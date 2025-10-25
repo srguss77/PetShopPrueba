@@ -30,6 +30,20 @@ android {
             "MAPTILER_API_KEY",
             "\"${project.findProperty("MAPTILER_API_KEY") ?: ""}\""
         )
+
+        // ⚠️ Lee desde gradle.properties:
+        // CLOUDINARY_CLOUD_NAME=tu_cloud_name
+        // CLOUDINARY_UPLOAD_PRESET=tu_preset_unsigned
+        buildConfigField(
+            "String",
+            "CLOUDINARY_CLOUD_NAME",
+            "\"${project.findProperty("CLOUDINARY_CLOUD_NAME") ?: ""}\""
+        )
+        buildConfigField(
+            "String",
+            "CLOUDINARY_UPLOAD_PRESET",
+            "\"${project.findProperty("CLOUDINARY_UPLOAD_PRESET") ?: ""}\""
+        )
     }
 
     buildTypes {
@@ -85,13 +99,13 @@ dependencies {
     implementation("com.google.firebase:firebase-database-ktx")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.8.1")
 
-    // ----- Imágenes -----
+    // ----- Imágenes (Coil) -----
     implementation("io.coil-kt:coil-compose:2.6.0")
 
     // ----- Mapas (MapLibre) -----
     implementation("org.maplibre.gl:android-sdk:12.0.1") // SDK principal
 
-    // GeoJSON (para Feature/Point/FeatureCollection)
+    // GeoJSON (Feature/Point/FeatureCollection de com.mapbox.geojson.*)
     implementation("com.mapbox.mapboxsdk:mapbox-sdk-geojson:5.8.0")
 
     // ----- Ubicación (Fused Location Provider) -----

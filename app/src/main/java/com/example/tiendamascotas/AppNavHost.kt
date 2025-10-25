@@ -1,7 +1,5 @@
-// FILE: app/src/main/java/com/example/tiendamascotas/AppNavHost.kt
 package com.example.tiendamascotas
 
-import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -19,6 +17,10 @@ import com.example.tiendamascotas.reports.ui.ReportsFeedScreen
 import com.example.tiendamascotas.reports.ui.CreateReportScreen
 import com.example.tiendamascotas.chat.ui.ConversationScreen
 import com.example.tiendamascotas.reports.ui.ReportsMapLibreScreen
+
+// Adopciones UI
+import com.example.tiendamascotas.adoptions.ui.AdoptionsFeedScreen
+import com.example.tiendamascotas.adoptions.ui.CreateAdoptionScreen
 
 @Composable
 fun AppNavHost() {
@@ -48,42 +50,69 @@ fun AppNavHost() {
         composable(Screen.Login.route) { LoginScreen(nav) }
         composable(Screen.Home.route) { HomeScreen(nav) }
 
-        // Stubs y otras rutas existentes
-        composable(Screen.CreateReport.route) { Text("Crear reporte") }
-        composable(Screen.Map.route) { ReportsMapLibreScreen() }
-        composable(Screen.ReportsFeed.route) { ReportsFeedScreen(nav) }
-
+        // Reportar (creación directa) + edición con parámetro
+        composable(Screen.CreateReport.route) { backStack ->
+            CreateReportScreen(nav, backStack)
+        }
         composable(
             route = "report/create?editId={editId}",
-            arguments = listOf(navArgument("editId") {
-                type = NavType.StringType; nullable = true; defaultValue = null
-            })
-        ) { backStack -> CreateReportScreen(nav, backStack) }
-
-        composable(Screen.CareAssistant.route) { Text("Asistente de cuidados") }
-        composable(Screen.ReviewsHome.route) { Text("Listado de reseñas") }
-        composable(Screen.ReviewCreate.route) { Text("Crear reseña") }
-        composable(
-            Screen.ReviewDetail.route,
-            arguments = listOf(navArgument("reviewId") { type = NavType.StringType })
-        ) { bs ->
-            Text("Detalle reseña: " + bs.arguments?.getString("reviewId").orEmpty())
+            arguments = listOf(
+                navArgument("editId") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                }
+            )
+        ) { backStack ->
+            CreateReportScreen(nav, backStack)
         }
 
+        // Feed de reportes
+        composable(Screen.ReportsFeed.route) { ReportsFeedScreen(nav) }
+
+        // Mapa (soporta Screen.Map y Routes.MAP)
+        composable(Screen.Map.route) { ReportsMapLibreScreen() }
+        composable(Routes.MAP) { ReportsMapLibreScreen() }
+
+        // Chat
         composable(Screen.ChatGeneral.route) { ChatGeneralScreen(nav) }
-        // ✅ Solo un alias extra si lo usabas:
         composable(Routes.CHAT) { ChatGeneralScreen(nav) }
 
-        composable(Screen.AdoptionsList.route) { Text("Listado de adopciones") }
-        composable(
-            Screen.AdoptionDetail.route,
-            arguments = listOf(navArgument("adoptionId") { type = NavType.StringType })
-        ) { bs ->
-            Text("Detalle adopción: " + bs.arguments?.getString("adoptionId").orEmpty())
+        // ------------------ ADOPCIONES ------------------
+        // Listado
+        composable(Screen.AdoptionsList.route) {
+            AdoptionsFeedScreen(nav)
         }
-        composable(Screen.NotificationsSettings.route) { Text("Ajustes de notificaciones") }
 
-        // ✅ ÚNICO bloque para conversación (sin duplicados)
+        // ✅ ÚNICA ruta para crear o editar (editId opcional)
+        composable(
+            route = "adoptions/create?editId={editId}",
+            arguments = listOf(
+                navArgument("editId") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                }
+            )
+        ) { backStack ->
+            val editId = backStack.arguments?.getString("editId")
+            // CreateAdoptionScreen debe aceptar: editId: String? = null
+            CreateAdoptionScreen(
+                editId = editId,
+                onClose = {
+                    if (!nav.popBackStack()) {
+                        nav.navigate(Screen.AdoptionsList.route)
+                    }
+                }
+            )
+        }
+        // -------------------------------------------------
+
+        // Perfil y notificaciones
+        composable(Screen.NotificationsSettings.route) { /* Ajustes de notificaciones */ }
+        composable(Screen.Profile.route) { ProfileScreen(nav) }
+
+        // Conversación (único)
         composable(
             route = Routes.CONVERSATION,
             arguments = listOf(navArgument("peerUid") { type = NavType.StringType })
@@ -91,7 +120,5 @@ fun AppNavHost() {
             val peerUid = backStackEntry.arguments?.getString("peerUid") ?: return@composable
             ConversationScreen(nav, peerUid)
         }
-
-        composable(Screen.Profile.route) { ProfileScreen(nav) }
     }
 }

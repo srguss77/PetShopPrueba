@@ -1,3 +1,4 @@
+// FILE: app/src/main/java/com/example/tiendamascotas/ServiceLocator.kt
 package com.example.tiendamascotas
 
 import com.example.tiendamascotas.assistant.AssistantService
@@ -11,19 +12,19 @@ import com.google.firebase.database.FirebaseDatabase
 import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.tasks.await
 
-// Alias para evitar colisión de nombres con ReportsRepository
+// Reports
 import com.example.tiendamascotas.domain.repository.ReportsRepository as ReportsRepo
 import com.example.tiendamascotas.reports.data.ReportsRepository as ReportsRepoImpl
+
+// Adoptions
+import com.example.tiendamascotas.domain.repository.AdoptionsRepository as AdoptionsRepo
+import com.example.tiendamascotas.adoptions.data.AdoptionsRepositoryImpl as AdoptionsRepoImpl
 
 object ServiceLocator {
     const val VET_BOT_UID = "__VET_BOT__"
 
-    // --- Users (directorio de usuarios) ---
-    val users: UserRepository by lazy {
-        FirestoreUserRepository()
-    }
+    val users: UserRepository by lazy { FirestoreUserRepository() }
 
-    // --- Chat (RTDB + Firestore) ---
     val chat: ChatRepository by lazy {
         RtdbChatRepository(
             auth = FirebaseAuth.getInstance(),
@@ -33,29 +34,24 @@ object ServiceLocator {
         )
     }
 
-    // --- Asistente (HTTP) ---
     val assistant: AssistantService by lazy {
         OkHttpAssistantService(BuildConfig.ASSISTANT_BASE_URL)
     }
 
-    // --- Auth facade (para LoginViewModel / ProfileViewModel) ---
     object auth {
         private val a = FirebaseAuth.getInstance()
-
         suspend fun signIn(email: String, pass: String): Result<Unit> = runCatching {
             a.signInWithEmailAndPassword(email, pass).await(); Unit
         }
-
         suspend fun signUp(email: String, pass: String): Result<Unit> = runCatching {
             a.createUserWithEmailAndPassword(email, pass).await(); Unit
         }
-
-        fun signOut() {
-            a.signOut()
-        }
+        fun signOut() = a.signOut()
     }
 
-    // --- Reports (para CreateReportScreen) ---
+    // Reports
     val reports: ReportsRepo = ReportsRepoImpl()
-    }
 
+    // Adoptions
+    val adoptions: AdoptionsRepo = AdoptionsRepoImpl()
+}

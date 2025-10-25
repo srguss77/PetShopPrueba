@@ -1,4 +1,3 @@
-// FILE: app/src/main/java/com/example/tiendamascotas/home/HomeScreen.kt
 package com.example.tiendamascotas.home
 
 import androidx.compose.foundation.clickable
@@ -14,7 +13,6 @@ import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Pets
-import androidx.compose.material.icons.filled.RateReview
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -34,10 +32,9 @@ import kotlinx.coroutines.launch
 fun HomeScreen(nav: NavHostController) {
     val features = listOf(
         Feature("Reportar", Icons.Filled.Pets, Screen.CreateReport.route),
-        // ✅ Mapa usa la constante de Routes (opción B)
         Feature("Mapa", Icons.Filled.Map, Routes.MAP),
         Feature("Asistente", Icons.Filled.Lightbulb, Screen.CareAssistant.route),
-        Feature("Reseñas", Icons.Filled.RateReview, Screen.ReviewsHome.route),
+        // 🔥 Se elimina “Reseñas”
         Feature("Chat", Icons.Filled.Chat, Screen.ChatGeneral.route),
         Feature("Adopciones", Icons.Filled.Favorite, Screen.AdoptionsList.route),
     )
@@ -202,7 +199,6 @@ private fun NewMessageWatcher(
                                 duration = SnackbarDuration.Short
                             )
                             if (result == SnackbarResult.ActionPerformed) {
-                                // ✅ usa helper consistente
                                 nav.navigate(Routes.conversation(peerUid))
                             }
                         }
