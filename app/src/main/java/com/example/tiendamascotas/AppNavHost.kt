@@ -10,17 +10,15 @@ import com.example.tiendamascotas.chat.ui.ChatGeneralScreen
 import com.example.tiendamascotas.home.HomeScreen
 import com.example.tiendamascotas.navigation.Screen
 import com.example.tiendamascotas.nav.Routes
-import com.example.tiendamascotas.ui.auth.LoginScreen
+import com.example.tiendamascotas.auth.LoginScreen
 import com.google.firebase.auth.FirebaseAuth
 import com.example.tiendamascotas.profile.ProfileScreen
 import com.example.tiendamascotas.reports.ui.ReportsFeedScreen
 import com.example.tiendamascotas.reports.ui.CreateReportScreen
 import com.example.tiendamascotas.chat.ui.ConversationScreen
 import com.example.tiendamascotas.reports.ui.ReportsMapLibreScreen
-
 import com.example.tiendamascotas.adoptions.ui.AdoptionsFeedScreen
 import com.example.tiendamascotas.adoptions.ui.CreateAdoptionScreen
-
 import com.example.tiendamascotas.assistant.ui.PetBotChatScreen
 
 @Composable
@@ -48,10 +46,12 @@ fun AppNavHost() {
             }
         }
 
+        // ✅ LoginScreen solo recibe 'nav'
         composable(Screen.Login.route) { LoginScreen(nav) }
+
         composable(Screen.Home.route) { HomeScreen(nav) }
 
-        // Reportar (creación directa) + edición con parámetro
+        // Reportes
         composable(Screen.CreateReport.route) { backStack ->
             CreateReportScreen(nav, backStack)
         }
@@ -68,21 +68,18 @@ fun AppNavHost() {
             CreateReportScreen(nav, backStack)
         }
 
-
         composable(Screen.ReportsFeed.route) { ReportsFeedScreen(nav) }
 
-
+        // Mapas
         composable(Screen.Map.route) { ReportsMapLibreScreen() }
         composable(Routes.MAP) { ReportsMapLibreScreen() }
 
-
+        // Chat general
         composable(Screen.ChatGeneral.route) { ChatGeneralScreen(nav) }
         composable(Routes.CHAT) { ChatGeneralScreen(nav) }
 
-
-        composable(Screen.AdoptionsList.route) {
-            AdoptionsFeedScreen(nav)
-        }
+        // Adopciones
+        composable(Screen.AdoptionsList.route) { AdoptionsFeedScreen(nav) }
         composable(
             route = "adoptions/create?editId={editId}",
             arguments = listOf(
@@ -104,12 +101,11 @@ fun AppNavHost() {
             )
         }
 
-
-
-        composable(Screen.NotificationsSettings.route) { /* Ajustes de notificaciones */ }
+        // Perfil / ajustes (ajusta si corresponden)
+        composable(Screen.NotificationsSettings.route) { /* TODO */ }
         composable(Screen.Profile.route) { ProfileScreen(nav) }
 
-
+        // Conversación 1 a 1
         composable(
             route = Routes.CONVERSATION,
             arguments = listOf(navArgument("peerUid") { type = NavType.StringType })
@@ -118,15 +114,12 @@ fun AppNavHost() {
             ConversationScreen(nav, peerUid)
         }
 
-
+        // Asistente
         composable(Routes.ASSISTANT_CHAT) {
             PetBotChatScreen(onBack = { nav.popBackStack() })
         }
-
         composable(Screen.CareAssistant.route) {
             PetBotChatScreen(onBack = { nav.popBackStack() })
         }
-
-
     }
 }

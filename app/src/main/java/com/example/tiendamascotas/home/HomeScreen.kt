@@ -44,7 +44,7 @@ fun HomeScreen(nav: NavHostController) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("PetShop") },
+                title = { Text("Pet Garden") },
                 actions = {
                     BadgedBox(
                         badge = {
