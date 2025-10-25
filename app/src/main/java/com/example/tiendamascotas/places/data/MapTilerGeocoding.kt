@@ -8,7 +8,7 @@ import retrofit2.http.GET
 import retrofit2.http.Path
 import retrofit2.http.Query
 
-// ----- DTOs -----
+
 data class GeocodingResponse(val features: List<GeocodingFeature>?)
 data class GeocodingFeature(
     @SerializedName("place_name") val placeName: String?,
@@ -19,9 +19,8 @@ data class Geometry(
     val coordinates: List<Double>? // [lon, lat]
 )
 
-// ----- API -----
+
 interface MapTilerGeocodingApi {
-    // GET https://api.maptiler.com/geocoding/{query}.json?key=...&language=es&limit=5
     @GET("geocoding/{query}.json")
     suspend fun search(
         @Path("query") query: String,

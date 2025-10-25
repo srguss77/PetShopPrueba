@@ -62,12 +62,10 @@ class FirestoreUserRepository : UserRepository {
             val me = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid
             val col = db.collection(FirestorePaths.USERS)
 
-            // Vamos a mantener dos listas y fusionarlas:
             var listLower: List<UserPublic> = emptyList()
             var listNamePrefix: List<UserPublic> = emptyList()
 
             fun emit() {
-                // Merge + dedupe + orden alfabético por nombre
                 val merged = (listLower + listNamePrefix)
                     .distinctBy { it.uid }
                     .sortedBy { (it.displayName ?: it.uid).lowercase() }
@@ -77,7 +75,6 @@ class FirestoreUserRepository : UserRepository {
                 trySend(merged).isSuccess
             }
 
-            // 1) Búsqueda rápida por displayNameLower (prefijo)
             val regLower = col
                 .orderBy(FirestorePaths.DISPLAY_NAME_LOWER)
                 .startAt(q)
@@ -95,8 +92,6 @@ class FirestoreUserRepository : UserRepository {
                     emit()
                 }
 
-            // 2) Fallback: si faltara displayNameLower en algunos docs, traemos un batch por displayName
-            //    y filtramos en cliente por prefijo case-insensitive.
             val regName = col
                 .orderBy(FirestorePaths.DISPLAY_NAME) // sensible a mayúsculas, por eso filtramos local
                 .limit(100)

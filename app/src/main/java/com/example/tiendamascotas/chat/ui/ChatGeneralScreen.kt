@@ -55,10 +55,8 @@ import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
-/** Fondo azul suave para la screen. */
 private val ChatListBlue = Color(0xFFF0F4FF)
 
-/** UIDs a ocultar (antiguo chat IA). */
 private val HiddenUids = setOf("petshop_ai", "__IA__")
 
 @Composable
@@ -74,17 +72,14 @@ fun ChatGeneralScreen(
     val scope = rememberCoroutineScope()
     val focusManager = LocalFocusManager.current
 
-    // Búsqueda
     var showSearch by rememberSaveable { mutableStateOf(true) }
     var query by rememberSaveable { mutableStateOf("") }
 
-    // Threads (RTDB)
     val threads: List<ChatThread> by remember(me) {
         if (me == null) emptyFlow<List<ChatThread>>()
         else chatRepo.observeThreadsFor(me).distinctUntilChanged()
     }.collectAsState(initial = emptyList())
 
-    // Perfiles (Firestore)
     val peerSet = remember(threads) { threads.map { it.peerUid }.toSet() }
     val profilesFlow: Flow<Map<String, UserPublic>> = remember(peerSet) {
         if (peerSet.isEmpty()) emptyFlow() else {
@@ -97,7 +92,6 @@ fun ChatGeneralScreen(
     }
     val profiles by profilesFlow.collectAsState(initial = emptyMap())
 
-    // Enriquecer + filtrar UIDs ocultos
     val enrichedThreads = remember(threads, profiles) {
         threads
             .filter { it.peerUid !in HiddenUids }
@@ -114,7 +108,6 @@ fun ChatGeneralScreen(
             }
     }
 
-    // Resultados de usuarios (Firestore, prefijo) + filtros
     val userResultsRaw by remember(query) {
         val q = query.trim().lowercase()
         if (q.length >= 2) userRepo.searchUsersPrefix(q, limit = 50) else emptyFlow()
@@ -184,7 +177,6 @@ fun ChatGeneralScreen(
                     }
                 }
 
-                // Directorio de usuarios
                 item(key = "hdr-users") { SectionHeader("Usuarios") }
 
                 if (query.trim().length >= 2) {
@@ -223,7 +215,6 @@ fun ChatGeneralScreen(
     }
 }
 
-/* ---------- tipos/rows/utils ---------- */
 
 private data class EnrichedThread(
     val peerUid: String,

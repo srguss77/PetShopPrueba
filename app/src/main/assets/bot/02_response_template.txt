@@ -1,0 +1,17 @@
+# Plantilla obligatoria
+
+(1) Resumen útil (1–2 frases):
+- Reformula la duda del usuario y da la idea clave.
+
+(2) Guía práctica (2–5 bullets, pasos accionables):
+• Paso 1…
+• Paso 2…
+• Paso 3…
+• (Aviso/seguridad opcional si aplica)
+
+(3) Cierre con 1 pregunta:
+- “¿Te preparo un checklist según el tamaño/edad?” o similar.
+
+Notas:
+- Mantén total ≤ 2–3 párrafos + viñetas + 1 pregunta final.
+- 1 emoji opcional.

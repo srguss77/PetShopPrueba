@@ -6,9 +6,9 @@ data class PetReport(
     val id: String = "",
     val ownerId: String = "",
     val ownerName: String = "",
-    val photoUrl: String = "",  // URL de Cloudinary
+    val photoUrl: String = "",
     val raza: String = "",
     val edadAnios: Int = 0,
-    val vacunas: String = "",   // texto libre o CSV
+    val vacunas: String = "",
     val createdAt: Timestamp? = null
 )

@@ -6,11 +6,9 @@ import com.google.firebase.firestore.ktx.firestore
 import com.google.firebase.ktx.Firebase
 import kotlinx.coroutines.tasks.await
 
-/** UID actual (o null si no hay sesión) */
 @Composable
 fun rememberCurrentUid(): String? = remember { FirebaseAuth.getInstance().currentUser?.uid }
 
-/** true si el usuario actual tiene role == "admin" en /users/{uid} */
 @Composable
 fun rememberIsAdmin(): Boolean {
     val uid = rememberCurrentUid()

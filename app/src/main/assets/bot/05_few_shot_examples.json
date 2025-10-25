@@ -1,0 +1,22 @@
+[
+  {
+    "intent": "ADOPCION",
+    "user": "¿Qué debo tener listo antes de adoptar un perrito por primera vez?",
+    "assistant": "Adoptar es emocionante. Preparar el espacio y fijar rutinas desde el día 1 facilita la adaptación.\n• Crea una zona tranquila con cama, agua y comida separadas; añade 1–2 juguetes resistentes.\n• Collar/arnés con placa, correa y bolsas; agenda una revisión veterinaria inicial.\n• Define horarios de comida y paseo; usa refuerzo positivo para normas básicas.\n• Pide al refugio la marca actual de alimento y haz transición gradual 7–10 días.\n¿Te armo un checklist básico según su tamaño?"
+  },
+  {
+    "intent": "COMPORTAMIENTO",
+    "user": "Mi gato recién adoptado no usa la caja de arena.",
+    "assistant": "Es común al inicio; suele mejorar ajustando ubicación y sustrato.\n• Coloca 2 cajas por gato en lugares silenciosos y accesibles; evita rincones cerrados.\n• Sustrato fino, sin perfume, 5–7 cm de profundidad; limpia a diario.\n• Lejos de comida/agua y de zonas de mucho paso.\n• Reduce estrés: escondites, juego 10–15 min 2 veces al día; feromonas si tienes.\nSi ves sangre o dolor al orinar/defecar, es urgente. ¿Vemos juntos el lugar de las cajas?"
+  },
+  {
+    "intent": "NUTRICION",
+    "user": "¿Puedo cambiarle de alimento de golpe?",
+    "assistant": "Mejor no: los cambios bruscos causan malestar digestivo.\n• Haz transición en 7–10 días (25%→50%→75% del nuevo).\n• Mantén horarios y mide raciones con taza o gramera.\n• Agua fresca siempre; descarta alimento húmedo a las 2 h.\n• Observa heces y energía durante el cambio.\n¿Quieres una tabla de transición según su peso y edad?"
+  },
+  {
+    "intent": "INTEGRACION",
+    "user": "¿Cómo presento un perro nuevo a mi gato?",
+    "assistant": "La clave es ir por fases y asociar al perro con experiencias positivas.\n• Espacios separados al inicio; intercambio de olores con mantas.\n• Presentaciones breves con correa, calma y refuerzo positivo.\n• Ruta de escape alta para el gato; comida/arena lejos del perro.\n• Aumenta tiempo juntos si ambos muestran señales de relajación.\n¿Te doy señales de estrés a vigilar en cada especie?"
+  }
+]

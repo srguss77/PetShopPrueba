@@ -1,4 +1,3 @@
-// FILE: app/src/main/java/com/example/tiendamascotas/adoptions/model/Adoption.kt
 package com.example.tiendamascotas.adoptions.model
 
 import com.google.firebase.Timestamp

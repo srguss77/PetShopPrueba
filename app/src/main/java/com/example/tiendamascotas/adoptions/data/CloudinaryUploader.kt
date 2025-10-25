@@ -19,9 +19,6 @@ object CloudinaryUploader {
 
     private val client by lazy { OkHttpClient() }
 
-    /**
-     * Sube una imagen a Cloudinary (unsigned). Devuelve secure_url o lanza error con detalle.
-     */
     suspend fun uploadUri(
         context: Context,
         uri: Uri,

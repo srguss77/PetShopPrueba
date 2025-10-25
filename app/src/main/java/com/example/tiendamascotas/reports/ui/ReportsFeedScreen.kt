@@ -46,7 +46,6 @@ fun ReportsFeedScreen(nav: NavHostController, vm: ReportsFeedViewModel = viewMod
                 }
             }
 
-            // FAB abajo-izquierda
             Box(
                 modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.BottomStart

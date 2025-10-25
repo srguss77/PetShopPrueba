@@ -33,7 +33,6 @@ class ReportsFeedViewModel(
     val ui: StateFlow<ReportsUiState> = _ui
 
     init {
-        // carga rol + uid
         viewModelScope.launch {
             val uid = auth.currentUser?.uid
             var role = "user"

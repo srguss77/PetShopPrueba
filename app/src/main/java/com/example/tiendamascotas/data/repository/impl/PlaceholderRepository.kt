@@ -9,9 +9,7 @@ import com.example.tiendamascotas.domain.repository.UserPublic
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 
-/**
- * Implementación de respaldo para tests/local sin backend.
- */
+
 class PlaceholderChatRepository : ChatRepository {
     override fun observeUsers(query: String): Flow<List<ChatUser>> = flowOf(emptyList())
     override fun observeConversation(peerUid: String): Flow<List<ChatMessage>> = flowOf(emptyList())

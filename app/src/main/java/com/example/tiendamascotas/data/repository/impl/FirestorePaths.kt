@@ -6,5 +6,4 @@
         const val MESSAGES = "messages"
         const val DISPLAY_NAME = "displayName"
         const val DISPLAY_NAME_LOWER = "displayNameLower"
-        const val IA_PEER = "__IA__"   // chat fijo “PetShop IA”
     }

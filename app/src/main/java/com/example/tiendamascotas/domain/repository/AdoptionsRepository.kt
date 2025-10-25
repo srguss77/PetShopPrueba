@@ -1,4 +1,3 @@
-// FILE: app/src/main/java/com/example/tiendamascotas/domain/repository/AdoptionsRepository.kt
 package com.example.tiendamascotas.domain.repository
 
 import com.example.tiendamascotas.adoptions.model.Adoption

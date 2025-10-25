@@ -10,7 +10,6 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.tasks.await
 
-// IMPLEMENTA la interfaz de dominio con alias
 import com.example.tiendamascotas.domain.repository.ReportsRepository as ReportsRepo
 
 class ReportsRepository(

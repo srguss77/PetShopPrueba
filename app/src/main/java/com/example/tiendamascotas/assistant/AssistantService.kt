@@ -1,4 +1,3 @@
-// FILE: app/src/main/java/com/example/tiendamascotas/assistant/AssistantService.kt  (NUEVO)
 package com.example.tiendamascotas.assistant
 
 import kotlinx.coroutines.Dispatchers

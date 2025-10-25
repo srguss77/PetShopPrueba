@@ -1,4 +1,3 @@
-// FILE: app/src/main/java/com/example/tiendamascotas/ServiceLocator.kt
 package com.example.tiendamascotas
 
 import com.example.tiendamascotas.assistant.AssistantService
@@ -12,11 +11,11 @@ import com.google.firebase.database.FirebaseDatabase
 import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.tasks.await
 
-// Reports
+
 import com.example.tiendamascotas.domain.repository.ReportsRepository as ReportsRepo
 import com.example.tiendamascotas.reports.data.ReportsRepository as ReportsRepoImpl
 
-// Adoptions
+
 import com.example.tiendamascotas.domain.repository.AdoptionsRepository as AdoptionsRepo
 import com.example.tiendamascotas.adoptions.data.AdoptionsRepositoryImpl as AdoptionsRepoImpl
 
@@ -49,9 +48,9 @@ object ServiceLocator {
         fun signOut() = a.signOut()
     }
 
-    // Reports
+
     val reports: ReportsRepo = ReportsRepoImpl()
 
-    // Adoptions
+
     val adoptions: AdoptionsRepo = AdoptionsRepoImpl()
 }

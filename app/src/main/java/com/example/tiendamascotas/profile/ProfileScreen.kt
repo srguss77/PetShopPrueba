@@ -46,7 +46,6 @@ fun ProfileScreen(nav: NavHostController, vm: ProfileViewModel = viewModel()) {
                 .fillMaxSize()
                 .padding(padd)
         ) {
-            // Header con gradiente + avatar + nombre + rol
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -105,7 +104,6 @@ fun ProfileScreen(nav: NavHostController, vm: ProfileViewModel = viewModel()) {
                 }
             }
 
-            // Card con email + nombre editable + rol
             Card(
                 modifier = Modifier
                     .fillMaxWidth()

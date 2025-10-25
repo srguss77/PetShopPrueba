@@ -18,7 +18,6 @@ class AdoptionsRepositoryImpl(
     private val auth: FirebaseAuth = FirebaseAuth.getInstance()
 ) : AdoptionsRepository {
 
-    // Colección raíz: "adoption" (como pediste)
     private val col get() = db.collection("adoption")
 
     override fun feed(): Flow<List<Adoption>> = callbackFlow {

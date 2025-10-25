@@ -5,17 +5,14 @@ pluginManagement {
         gradlePluginPortal()
     }
 }
+
 dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
     repositories {
-        google()
+        google()        // Repositorio de Google (Firebase, Play Services)
         mavenCentral()
     }
 }
-rootProject.name = "Proyecto F2" // o el que uses
-include(":app")
 
-
-rootProject.name = "tiendamascotas"
+rootProject.name = "Proyecto F2"
 include(":app")
- 

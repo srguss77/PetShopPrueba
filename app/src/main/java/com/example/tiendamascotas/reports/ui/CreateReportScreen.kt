@@ -1,4 +1,3 @@
-
 package com.example.tiendamascotas.reports.ui
 
 import android.net.Uri
@@ -11,7 +10,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Chat
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.*
@@ -27,7 +25,6 @@ import coil.compose.AsyncImage
 import com.example.tiendamascotas.ServiceLocator
 import com.example.tiendamascotas.data.repository.impl.FirestorePaths
 import com.example.tiendamascotas.domain.repository.ReportsRepository
-import com.example.tiendamascotas.nav.Routes
 import com.example.tiendamascotas.reports.model.PetReport
 import com.example.tiendamascotas.reports.util.uploadToCloudinary
 import com.google.firebase.auth.FirebaseAuth
@@ -48,7 +45,6 @@ fun CreateReportScreen(
     val snackbar = remember { SnackbarHostState() }
     val context = LocalContext.current
 
-    // --- usuario actual (para permisos de edición) ---
     val auth = remember { FirebaseAuth.getInstance() }
     var currentUid by remember { mutableStateOf(auth.currentUser?.uid) }
     var role by remember { mutableStateOf("user") }
@@ -63,15 +59,12 @@ fun CreateReportScreen(
     }
     fun canEdit(r: PetReport) = role.equals("admin", true) || r.ownerId == currentUid
 
-    // --- feed (tiempo real) ---
     val feed by remember(repo) { repo.feed() }.collectAsState(initial = emptyList())
 
-    // --- edición por deep-link (?editId=...) y por card ---
     val navEditParam = backStackEntry.arguments?.getString("editId")
         ?.takeIf { it.isNullOrBlank().not() && !it!!.startsWith("{") }
     var currentEditId by remember { mutableStateOf<String?>(navEditParam) }
 
-    // --- hoja modal + formulario ---
     var showSheet by remember { mutableStateOf(false) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var url by remember { mutableStateOf("") }
@@ -87,7 +80,6 @@ fun CreateReportScreen(
         currentEditId = null
     }
 
-    // prefill si llega editId por navegación
     LaunchedEffect(currentEditId) {
         if (currentEditId != null) {
             saving = true
@@ -107,7 +99,6 @@ fun CreateReportScreen(
         }
     }
 
-    // --- Photo picker + subir a Cloudinary ---
     var lastPicked by remember { mutableStateOf<Uri?>(null) }
     val pickImage = rememberLauncherForActivityResult(PickVisualMedia()) { uri ->
         if (uri != null) {
@@ -151,7 +142,6 @@ fun CreateReportScreen(
         }.onFailure { snackbar.showSnackbar(it.message ?: "Error al guardar") }
     }
 
-    // confirmar borrado
     var toDelete by remember { mutableStateOf<PetReport?>(null) }
 
     Scaffold(
@@ -210,7 +200,6 @@ fun CreateReportScreen(
             }
         }
 
-        // hoja modal (crear/editar)
         if (showSheet) {
             ModalBottomSheet(
                 onDismissRequest = { if (!saving) showSheet = false },
@@ -223,7 +212,6 @@ fun CreateReportScreen(
                     )
                     Spacer(Modifier.height(12.dp))
 
-                    // Preview si ya hay URL
                     if (url.isNotBlank()) {
                         AsyncImage(
                             model = url,
@@ -277,7 +265,6 @@ fun CreateReportScreen(
             }
         }
 
-        // diálogo confirmar borrado
         toDelete?.let { r ->
             AlertDialog(
                 onDismissRequest = { toDelete = null },

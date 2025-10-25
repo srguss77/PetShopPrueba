@@ -18,9 +18,10 @@ import com.example.tiendamascotas.reports.ui.CreateReportScreen
 import com.example.tiendamascotas.chat.ui.ConversationScreen
 import com.example.tiendamascotas.reports.ui.ReportsMapLibreScreen
 
-// Adopciones UI
 import com.example.tiendamascotas.adoptions.ui.AdoptionsFeedScreen
 import com.example.tiendamascotas.adoptions.ui.CreateAdoptionScreen
+
+import com.example.tiendamascotas.assistant.ui.PetBotChatScreen
 
 @Composable
 fun AppNavHost() {
@@ -67,24 +68,21 @@ fun AppNavHost() {
             CreateReportScreen(nav, backStack)
         }
 
-        // Feed de reportes
+
         composable(Screen.ReportsFeed.route) { ReportsFeedScreen(nav) }
 
-        // Mapa (soporta Screen.Map y Routes.MAP)
+
         composable(Screen.Map.route) { ReportsMapLibreScreen() }
         composable(Routes.MAP) { ReportsMapLibreScreen() }
 
-        // Chat
+
         composable(Screen.ChatGeneral.route) { ChatGeneralScreen(nav) }
         composable(Routes.CHAT) { ChatGeneralScreen(nav) }
 
-        // ------------------ ADOPCIONES ------------------
-        // Listado
+
         composable(Screen.AdoptionsList.route) {
             AdoptionsFeedScreen(nav)
         }
-
-        // ✅ ÚNICA ruta para crear o editar (editId opcional)
         composable(
             route = "adoptions/create?editId={editId}",
             arguments = listOf(
@@ -96,7 +94,6 @@ fun AppNavHost() {
             )
         ) { backStack ->
             val editId = backStack.arguments?.getString("editId")
-            // CreateAdoptionScreen debe aceptar: editId: String? = null
             CreateAdoptionScreen(
                 editId = editId,
                 onClose = {
@@ -106,13 +103,13 @@ fun AppNavHost() {
                 }
             )
         }
-        // -------------------------------------------------
 
-        // Perfil y notificaciones
+
+
         composable(Screen.NotificationsSettings.route) { /* Ajustes de notificaciones */ }
         composable(Screen.Profile.route) { ProfileScreen(nav) }
 
-        // Conversación (único)
+
         composable(
             route = Routes.CONVERSATION,
             arguments = listOf(navArgument("peerUid") { type = NavType.StringType })
@@ -120,5 +117,16 @@ fun AppNavHost() {
             val peerUid = backStackEntry.arguments?.getString("peerUid") ?: return@composable
             ConversationScreen(nav, peerUid)
         }
+
+
+        composable(Routes.ASSISTANT_CHAT) {
+            PetBotChatScreen(onBack = { nav.popBackStack() })
+        }
+
+        composable(Screen.CareAssistant.route) {
+            PetBotChatScreen(onBack = { nav.popBackStack() })
+        }
+
+
     }
 }

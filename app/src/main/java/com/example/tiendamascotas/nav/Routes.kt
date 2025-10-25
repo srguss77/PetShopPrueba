@@ -1,4 +1,3 @@
-// FILE: app/src/main/java/com/example/tiendamascotas/nav/Routes.kt
 package com.example.tiendamascotas.nav
 
 object Routes {
@@ -13,6 +12,8 @@ object Routes {
 
     // (Si la usas) perfil con argumento
     const val PROFILE = "profile/{uid}"
+
+    const val ASSISTANT_CHAT = "assistant/chat"
 
     object Args {
         const val PeerUid = "peerUid"

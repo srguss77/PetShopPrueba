@@ -11,7 +11,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
-import com.example.tiendamascotas.profile.ProfileViewModel
 
 
 data class ProfileUiState(
@@ -76,12 +75,10 @@ class ProfileViewModel : ViewModel() {
         val user = auth.currentUser ?: return@launch
         val name = _ui.value.displayName.trim()
 
-        // Guarda el nombre en Firestore
         db.collection("users").document(user.uid)
             .update(mapOf("displayName" to name))
             .await()
 
-        // Actualiza displayName en Auth sin KTX (evita userProfileChangeRequest)
         val req = UserProfileChangeRequest.Builder()
             .setDisplayName(name)
             .build()

@@ -25,10 +25,6 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.tasks.await
 import java.util.Date
 
-/**
- * Repositorio Firestore legacy (sigue existiendo para compatibilidad).
- * En esta rama tu app usa RtdbChatRepository vía ServiceLocator.chat.
- */
 class FirestoreChatRepository(
     private val auth: FirebaseAuth = FirebaseAuth.getInstance()
 ) : ChatRepository {
@@ -36,7 +32,6 @@ class FirestoreChatRepository(
     private val db = Firebase.firestore
     private val rtdb = FirebaseDatabase.getInstance()
 
-    /* ===== Usuarios (búsqueda básica) ===== */
     override fun observeUsers(query: String): Flow<List<ChatUser>> = callbackFlow {
         val me = auth.currentUser?.uid
         val q = query.trim().lowercase()
@@ -70,7 +65,6 @@ class FirestoreChatRepository(
         awaitClose { reg.remove() }
     }.distinctUntilChanged()
 
-    /* ===== Conversación y envío (legacy sobre Firestore) ===== */
     override fun observeConversation(peerUid: String): Flow<List<ChatMessage>> = callbackFlow {
         val me = auth.currentUser?.uid
         if (me == null) { trySend(emptyList()); close(); return@callbackFlow }
@@ -140,7 +134,6 @@ class FirestoreChatRepository(
         Unit
     }
 
-    // NUEVO: marcar leído
     override suspend fun markThreadRead(peerUid: String) {
         val me = auth.currentUser?.uid ?: return
         db.collection(FirestorePaths.USERS).document(me)
@@ -149,7 +142,6 @@ class FirestoreChatRepository(
             .await()
     }
 
-    /* ===== Perfiles públicos (Firestore) ===== */
     override fun observeUserPublic(uid: String): Flow<UserPublic?> = callbackFlow {
         if (uid.isBlank()) { trySend(null); close(); return@callbackFlow }
         val ref = db.collection(FirestorePaths.USERS).document(uid)
@@ -191,7 +183,6 @@ class FirestoreChatRepository(
         awaitClose { regs.values.forEach { it.remove() } }
     }.distinctUntilChanged()
 
-    /* ===== Threads enriquecidos (legacy Firestore) ===== */
     override fun observeThreadsFor(currentUid: String): Flow<List<ChatThread>> = callbackFlow {
         val chatsRef = db.collection(FirestorePaths.USERS)
             .document(currentUid)
@@ -212,7 +203,6 @@ class FirestoreChatRepository(
         awaitClose { reg.remove() }
     }.distinctUntilChanged()
 
-    /* ===== Presence & Typing via RTDB (para compatibilidad) ===== */
     override fun observePresence(uid: String): Flow<UserPresence> {
         val ref = rtdb.getReference("presence").child(uid)
         return callbackFlow {
@@ -268,12 +258,10 @@ class FirestoreChatRepository(
         ref.setValue(mapOf("online" to false, "lastSeen" to ServerValue.TIMESTAMP))
     }
 
-    // PRONT 10/11: no lo usamos aquí, devolver vacío para compatibilidad
     override fun observeChatRows(currentUid: String) =
         callbackFlow<List<ChatRepository.ChatRow>> { trySend(emptyList()); awaitClose { } }
 }
 
-/* ===== Helpers ===== */
 private fun Any?.toMillisOrNull(): Long? = when (this) {
     is com.google.firebase.Timestamp -> this.toDate().time
     is Date -> this.time

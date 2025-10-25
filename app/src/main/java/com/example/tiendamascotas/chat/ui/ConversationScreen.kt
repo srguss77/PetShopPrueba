@@ -1,4 +1,3 @@
-// FILE: app/src/main/java/com/example/tiendamascotas/chat/ui/ConversationScreen.kt  (REEMPLAZA COMPLETO)
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 
 package com.example.tiendamascotas.chat.ui
@@ -26,8 +25,7 @@ import androidx.navigation.NavHostController
 import com.example.tiendamascotas.ServiceLocator
 import com.example.tiendamascotas.ServiceLocator.VET_BOT_UID
 import com.example.tiendamascotas.assistant.AssistantChatRequest
-import com.example.tiendamascotas.data.repository.impl.RtdbChatRepository   // 👈 para el cast seguro
-import com.example.tiendamascotas.domain.model.ChatMessage
+import com.example.tiendamascotas.data.repository.impl.RtdbChatRepository
 import com.example.tiendamascotas.domain.repository.ChatRepository
 import com.example.tiendamascotas.domain.repository.UserRepository
 import com.google.firebase.auth.FirebaseAuth
@@ -54,7 +52,6 @@ fun ConversationScreen(
     var text by remember { mutableStateOf("") }
     var urgentBanner by remember { mutableStateOf(false) }
 
-    // Disclaimer 1 sola vez al abrir el Asistente
     var showDisclaimer by remember {
         mutableStateOf(isBot && !ctx.getSharedPreferences("assistant", 0).getBoolean("disclaimer_shown", false))
     }

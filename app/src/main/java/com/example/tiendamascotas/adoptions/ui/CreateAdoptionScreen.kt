@@ -1,4 +1,3 @@
-// FILE: app/src/main/java/com/example/tiendamascotas/adoptions/ui/CreateAdoptionScreen.kt
 package com.example.tiendamascotas.adoptions.ui
 
 import android.content.Context
@@ -25,7 +24,7 @@ import kotlinx.coroutines.tasks.await
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CreateAdoptionScreen(
-    editId: String? = null,        // ✅ soporta edición
+    editId: String? = null,
     onClose: () -> Unit
 ) {
     val repo = ServiceLocator.adoptions
@@ -33,9 +32,8 @@ fun CreateAdoptionScreen(
     val ctx = LocalContext.current
     val isEdit = editId != null
 
-    // --- Estados del formulario ---
-    var pickedUri by remember { mutableStateOf<Uri?>(null) } // imagen local elegida
-    var photoUrl by remember { mutableStateOf("") }          // URL ya subida (o actual)
+    var pickedUri by remember { mutableStateOf<Uri?>(null) }
+    var photoUrl by remember { mutableStateOf("") }
 
     var nombre by remember { mutableStateOf("") }
     var especie by remember { mutableStateOf("") }
@@ -54,7 +52,6 @@ fun CreateAdoptionScreen(
     var loading by remember { mutableStateOf(isEdit) }
     var error by remember { mutableStateOf<String?>(null) }
 
-    // ✅ Cargar datos si venimos a editar
     LaunchedEffect(editId) {
         if (editId == null) return@LaunchedEffect
         try {

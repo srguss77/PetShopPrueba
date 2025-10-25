@@ -1,4 +1,3 @@
-// FILE: app/src/main/java/com/example/tiendamascotas/reports/ui/ReportsMapLibreScreen.kt
 package com.example.tiendamascotas.reports.ui
 
 import android.annotation.SuppressLint
@@ -78,11 +77,11 @@ fun ReportsMapLibreScreen(
                         m.cameraPosition = CameraPosition.Builder()
                             .target(defaultCenter).zoom(defaultZoom).build()
 
-                        // Fuente + capa para “pin de búsqueda” (una vez)
+
                         if (st.getSource("search-source") == null) {
                             val src = GeoJsonSource("search-source")
                             st.addSource(src)
-                            // inicializar vacía usando la sobrecarga String
+
                             src.setGeoJson("""{"type":"FeatureCollection","features":[]}""")
 
                             st.addLayer(
@@ -103,7 +102,7 @@ fun ReportsMapLibreScreen(
         }
     )
 
-    // Ciclo de vida del MapView
+
     DisposableEffect(lifecycle) {
         val obs = LifecycleEventObserver { _, e ->
             when (e) {
@@ -123,7 +122,7 @@ fun ReportsMapLibreScreen(
         }
     }
 
-    // Pedir permisos al entrar
+
     LaunchedEffect(Unit) {
         if (!hasLocation) {
             permissionLauncher.launch(arrayOf(
@@ -133,7 +132,7 @@ fun ReportsMapLibreScreen(
         }
     }
 
-    // UI: barra de búsqueda y FABs
+
     Box(Modifier.fillMaxSize()) {
         Row(
             modifier = Modifier
@@ -165,7 +164,6 @@ fun ReportsMapLibreScreen(
                                 map?.animateCamera(
                                     CameraUpdateFactory.newLatLngZoom(target, 15.0)
                                 )
-                                // Actualiza la fuente con String GeoJSON (sin choques de tipos)
                                 map?.getStyle()?.let { st ->
                                     val src = st.getSource("search-source") as? GeoJsonSource ?: return@let
                                     val geojson = """
@@ -231,7 +229,6 @@ private fun enableLocation(
 private fun centerOnCurrentLocation(ctx: Context, map: MapLibreMap?) {
     map ?: return
 
-    // Si el LocationComponent aún no está activado, actívalo "on-demand" de forma segura
     try {
         val style = map.style
         val lc = map.locationComponent
@@ -247,7 +244,7 @@ private fun centerOnCurrentLocation(ctx: Context, map: MapLibreMap?) {
             lc.cameraMode = CameraMode.TRACKING
         }
     } catch (_: Throwable) {
-        // no crashear si falla la activación
+
     }
 
     val fused = LocationServices.getFusedLocationProviderClient(ctx)

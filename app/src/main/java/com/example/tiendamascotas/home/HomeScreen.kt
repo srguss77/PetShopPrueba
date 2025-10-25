@@ -33,7 +33,7 @@ fun HomeScreen(nav: NavHostController) {
     val features = listOf(
         Feature("Reportar", Icons.Filled.Pets, Screen.CreateReport.route),
         Feature("Mapa", Icons.Filled.Map, Routes.MAP),
-        Feature("Asistente", Icons.Filled.Lightbulb, Screen.CareAssistant.route),
+        Feature("Asistente", Icons.Filled.Lightbulb, Routes.ASSISTANT_CHAT),
         // 🔥 Se elimina “Reseñas”
         Feature("Chat", Icons.Filled.Chat, Screen.ChatGeneral.route),
         Feature("Adopciones", Icons.Filled.Favorite, Screen.AdoptionsList.route),

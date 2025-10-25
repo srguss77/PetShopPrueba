@@ -1,4 +1,3 @@
-// FILE: app/src/main/java/com/example/tiendamascotas/data/repository/impl/RtdbChatRepository.kt  (REEMPLAZA COMPLETO)
 package com.example.tiendamascotas.data.repository.impl
 
 import com.example.tiendamascotas.domain.model.ChatMessage
@@ -24,15 +23,6 @@ import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.tasks.await
 
-/**
- * Chat sobre RTDB. Firestore se mantiene para /users (perfiles).
- *
- * RTDB:
- *  - /threads/{uid}/{peerUid}  -> { peerUid, lastMessage, updatedAt(Long), unreadCount(Int) }
- *  - /messages/{convId}/{id}   -> { fromUid, toUid, text, createdAt(Long) }
- *  - /presence/{uid}           -> { online:Boolean, lastSeen:Long }
- *  - /typing/{toUid}/{fromUid} -> true
- */
 class RtdbChatRepository(
     private val auth: FirebaseAuth,
     private val rtdb: FirebaseDatabase,
@@ -49,7 +39,6 @@ class RtdbChatRepository(
     private fun DataSnapshot.longChild(name: String): Long? =
         child(name).getValue(Long::class.java) ?: child(name).getValue(Double::class.java)?.toLong()
 
-    /* =================== Threads =================== */
     override fun observeThreadsFor(currentUid: String): Flow<List<ChatThread>> {
         val query = rtdb.getReference("threads").child(currentUid).orderByChild("updatedAt")
         return callbackFlow {
@@ -73,7 +62,6 @@ class RtdbChatRepository(
         }.distinctUntilChanged()
     }
 
-    /* =================== Conversation =================== */
     override fun observeConversation(peerUid: String): Flow<List<ChatMessage>> {
         val cid = convId(myUid(), peerUid)
         val query = rtdb.getReference("messages").child(cid).orderByChild("createdAt")
@@ -135,7 +123,6 @@ class RtdbChatRepository(
         })
     }
 
-    // ✅ NUEVO: insertar mensaje entrante (para respuestas del bot u otros sistemas)
     suspend fun receiveText(fromUid: String, toUid: String, text: String) {
         val cid = convId(fromUid, toUid)
         val msgsRef = rtdb.getReference("messages").child(cid)
@@ -152,8 +139,6 @@ class RtdbChatRepository(
             "/threads/$toUid/$fromUid/peerUid" to fromUid,
             "/threads/$toUid/$fromUid/lastMessage" to trimmed,
             "/threads/$toUid/$fromUid/updatedAt" to ServerValue.TIMESTAMP
-            // Si quisieras contarlo como no leído:
-            // "/threads/$toUid/$fromUid/unreadCount" to ServerValue.increment(1)
         )
 
         rtdb.reference.updateChildren(multi).await()
@@ -165,13 +150,13 @@ class RtdbChatRepository(
             .setValue(0).await()
     }
 
-    /* =================== Search users (no usado aquí) =================== */
+
     override fun observeUsers(query: String) = callbackFlow {
         trySend(emptyList<ChatUser>()).isSuccess
         awaitClose { }
     }
 
-    /* =================== Users public (Firestore direct) =================== */
+
     override fun observeUserPublic(uid: String): Flow<UserPublic?> = callbackFlow {
         if (uid.isBlank()) { trySend(null); close(); return@callbackFlow }
         val doc = firestore.collection(FirestorePaths.USERS).document(uid)
@@ -213,7 +198,7 @@ class RtdbChatRepository(
         awaitClose { regs.values.forEach { it.remove() } }
     }.distinctUntilChanged()
 
-    /* =================== Presencia & Typing (RTDB) =================== */
+
     override fun observePresence(uid: String): Flow<UserPresence> {
         val ref = rtdb.getReference("presence").child(uid)
         return callbackFlow {
@@ -267,8 +252,7 @@ class RtdbChatRepository(
         val ref = rtdb.getReference("presence").child(me)
         ref.setValue(mapOf("online" to false, "lastSeen" to ServerValue.TIMESTAMP)).await()
     }
-
-    // (PRONT 10) Si alguien lo invoca, devolvemos vacío (no usado en esta rama)
+    
     override fun observeChatRows(currentUid: String) =
         callbackFlow<List<ChatRepository.ChatRow>> { trySend(emptyList()); awaitClose { } }
 }
