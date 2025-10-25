@@ -11,7 +11,6 @@ import androidx.compose.material.icons.filled.Chat
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.filled.Map
-import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Pets
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -45,7 +44,7 @@ fun HomeScreen(nav: NavHostController) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Mascotas") },
+                title = { Text("PetShop") },
                 actions = {
                     BadgedBox(
                         badge = {
@@ -54,9 +53,6 @@ fun HomeScreen(nav: NavHostController) {
                             }
                         }
                     ) {
-                        IconButton(onClick = { nav.navigate(Screen.NotificationsSettings.route) }) {
-                            Icon(Icons.Filled.Notifications, contentDescription = "Notificaciones")
-                        }
                     }
                     IconButton(onClick = { nav.navigate(Screen.Profile.route) }) {
                         Icon(Icons.Filled.AccountCircle, contentDescription = "Perfil")

@@ -5,7 +5,7 @@ import com.example.tiendamascotas.BuildConfig
 
 object GeminiProvider {
 
-    private const val FLASH = "gemini-1.5-flash-latest"
+    private const val FLASH = "gemini-2.0-flash"
 
     private const val PRO   = "gemini-2.0-flash"
 
