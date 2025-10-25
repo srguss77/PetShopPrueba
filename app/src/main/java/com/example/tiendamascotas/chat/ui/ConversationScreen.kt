@@ -1,3 +1,4 @@
+// FILE: app/src/main/java/com/example/tiendamascotas/chat/ui/ConversationScreen.kt  (REEMPLAZA COMPLETO)
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 
 package com.example.tiendamascotas.chat.ui
@@ -18,10 +19,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavHostController
 import com.example.tiendamascotas.ServiceLocator
+import com.example.tiendamascotas.ServiceLocator.VET_BOT_UID
+import com.example.tiendamascotas.assistant.AssistantChatRequest
+import com.example.tiendamascotas.data.repository.impl.RtdbChatRepository   // 👈 para el cast seguro
 import com.example.tiendamascotas.domain.model.ChatMessage
 import com.example.tiendamascotas.domain.repository.ChatRepository
 import com.example.tiendamascotas.domain.repository.UserRepository
@@ -40,10 +45,22 @@ fun ConversationScreen(
 ) {
     val me = auth.currentUser?.uid ?: return
     val msgs by chatRepo.observeConversation(peerUid).collectAsState(initial = emptyList())
-    val peer by userRepo.observeUserPublic(peerUid).collectAsState(initial = null)
+    val isBot = peerUid == VET_BOT_UID
+    val peer by if (!isBot) userRepo.observeUserPublic(peerUid).collectAsState(initial = null) else remember { mutableStateOf(null) }
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
+    val ctx = LocalContext.current
+
     var text by remember { mutableStateOf("") }
+    var urgentBanner by remember { mutableStateOf(false) }
+
+    // Disclaimer 1 sola vez al abrir el Asistente
+    var showDisclaimer by remember {
+        mutableStateOf(isBot && !ctx.getSharedPreferences("assistant", 0).getBoolean("disclaimer_shown", false))
+    }
+    fun markDisclaimerShown() {
+        ctx.getSharedPreferences("assistant", 0).edit().putBoolean("disclaimer_shown", true).apply()
+    }
 
     LaunchedEffect(peerUid) {
         chatRepo.markThreadRead(peerUid)
@@ -60,23 +77,25 @@ fun ConversationScreen(
                 title = {
                     Column {
                         Text(
-                            peer?.displayName ?: peerUid,
+                            if (isBot) "Asistente" else peer?.displayName ?: peerUid,
                             style = MaterialTheme.typography.titleLarge,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
-                        val presence by chatRepo.observePresence(peerUid).collectAsState(
-                            initial = com.example.tiendamascotas.domain.repository.UserPresence(false, null)
-                        )
-                        val sub = if (presence.isOnline) "En línea"
-                        else presence.lastSeen?.let {
-                            "Últ. vez " + DateUtils.getRelativeTimeSpanString(
-                                it, System.currentTimeMillis(),
-                                DateUtils.MINUTE_IN_MILLIS,
-                                DateUtils.FORMAT_ABBREV_RELATIVE
+                        if (!isBot) {
+                            val presence by chatRepo.observePresence(peerUid).collectAsState(
+                                initial = com.example.tiendamascotas.domain.repository.UserPresence(false, null)
                             )
-                        } ?: "—"
-                        Text(sub, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            val sub = if (presence.isOnline) "En línea"
+                            else presence.lastSeen?.let {
+                                "Últ. vez " + DateUtils.getRelativeTimeSpanString(
+                                    it, System.currentTimeMillis(),
+                                    DateUtils.MINUTE_IN_MILLIS,
+                                    DateUtils.FORMAT_ABBREV_RELATIVE
+                                )
+                            } ?: "—"
+                            Text(sub, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
                     }
                 }
             )
@@ -88,13 +107,27 @@ fun ConversationScreen(
                 .padding(padd)
                 .imePadding()
         ) {
+            if (urgentBanner) {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 8.dp, vertical = 6.dp)
+                ) {
+                    Column(Modifier.padding(12.dp)) {
+                        Text("Podría requerir atención veterinaria.", style = MaterialTheme.typography.bodyMedium)
+                        Text("Te sugerimos contactarte con un profesional a la brevedad.", style = MaterialTheme.typography.labelMedium)
+                    }
+                }
+            }
+
             LazyColumn(
                 modifier = Modifier.weight(1f),
                 reverseLayout = true,
                 state = listState,
                 contentPadding = PaddingValues(vertical = 8.dp, horizontal = 8.dp)
             ) {
-                val itemsRev = msgs.asReversed() // reverseLayout=true → últimos abajo
+                val itemsRev = msgs.asReversed()
                 items(itemsRev, key = { it.id }) { m ->
                     val isMine = m.fromUid == me
                     MessageBubble(
@@ -118,11 +151,8 @@ fun ConversationScreen(
                     value = text,
                     onValueChange = {
                         text = it
-                        // typing simple
-                        if (it.isNotBlank()) {
-                            scope.launch { chatRepo.setTyping(peerUid, true) }
-                        } else {
-                            scope.launch { chatRepo.setTyping(peerUid, false) }
+                        if (!isBot) {
+                            scope.launch { chatRepo.setTyping(peerUid, it.isNotBlank()) }
                         }
                     },
                     modifier = Modifier.weight(1f),
@@ -136,19 +166,68 @@ fun ConversationScreen(
                         val toSend = text.trim()
                         text = ""
                         scope.launch {
+                            // 1) Guardar saliente SIEMPRE (mismo flujo 1–a–1)
                             chatRepo.sendText(peerUid, toSend)
-                            chatRepo.setTyping(peerUid, false)
+                            if (!isBot) chatRepo.setTyping(peerUid, false)
                             chatRepo.markThreadRead(peerUid)
                         }
-                        scope.launch {
-                            // scroll al final
-                            listState.animateScrollToItem(0)
+                        scope.launch { listState.animateScrollToItem(0) }
+
+                        if (isBot) {
+                            // 2) Llamar backend /chat y guardar respuesta del bot
+                            scope.launch {
+                                urgentBanner = false
+                                val result = ServiceLocator.assistant.chat(
+                                    AssistantChatRequest(
+                                        userId = me,
+                                        message = toSend,
+                                        species = null,
+                                        locale = "es-GT"
+                                    )
+                                )
+                                result.fold(
+                                    onSuccess = { r ->
+                                        val pie = if (r.sources.isNotEmpty()) "\n\nFuentes: " + r.sources.joinToString("; ") else ""
+                                        val finalText = r.reply + pie
+                                        urgentBanner = r.risk.equals("urgent", ignoreCase = true)
+
+                                        // 👇 Cast seguro al repo concreto para insertar el entrante
+                                        (chatRepo as? RtdbChatRepository)?.receiveText(
+                                            fromUid = VET_BOT_UID,
+                                            toUid = me,
+                                            text = finalText
+                                        )
+                                    },
+                                    onFailure = {
+                                        (chatRepo as? RtdbChatRepository)?.receiveText(
+                                            fromUid = VET_BOT_UID,
+                                            toUid = me,
+                                            text = "No pude responder ahora. Revisa tu conexión e intenta de nuevo."
+                                        )
+                                    }
+                                )
+                            }
                         }
                     },
                     enabled = canSend
                 ) { Text("Enviar") }
             }
         }
+    }
+
+    if (showDisclaimer) {
+        AlertDialog(
+            onDismissRequest = { showDisclaimer = false; markDisclaimerShown() },
+            confirmButton = {
+                TextButton(onClick = { showDisclaimer = false; markDisclaimerShown() }) { Text("Entendido") }
+            },
+            title = { Text("Aviso") },
+            text = {
+                Text(
+                    "Este asistente ofrece orientación general con base en guías veterinarias (WSAVA, AAHA, Merck). No reemplaza la evaluación clínica. En urgencias, acude a un veterinario."
+                )
+            }
+        )
     }
 }
 

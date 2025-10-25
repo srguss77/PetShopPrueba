@@ -1,3 +1,4 @@
+// FILE: app/src/main/java/com/example/tiendamascotas/data/repository/impl/RtdbChatRepository.kt  (REEMPLAZA COMPLETO)
 package com.example.tiendamascotas.data.repository.impl
 
 import com.example.tiendamascotas.domain.model.ChatMessage
@@ -100,25 +101,27 @@ class RtdbChatRepository(
         val me = myUid()
         val cid = convId(me, peerUid)
         val msgsRef = rtdb.getReference("messages").child(cid)
-        val newKey = msgsRef.push().key ?: error("push() returned null key")
+        the@ run {
+            val newKey = msgsRef.push().key ?: error("push() returned null key")
 
-        val trimmed = text.trim()
+            val trimmed = text.trim()
 
-        val multi = hashMapOf<String, Any?>(
-            "/messages/$cid/$newKey/fromUid" to me,
-            "/messages/$cid/$newKey/toUid" to peerUid,
-            "/messages/$cid/$newKey/text" to trimmed,
-            "/messages/$cid/$newKey/createdAt" to ServerValue.TIMESTAMP,
+            val multi = hashMapOf<String, Any?>(
+                "/messages/$cid/$newKey/fromUid" to me,
+                "/messages/$cid/$newKey/toUid" to peerUid,
+                "/messages/$cid/$newKey/text" to trimmed,
+                "/messages/$cid/$newKey/createdAt" to ServerValue.TIMESTAMP,
 
-            "/threads/$me/$peerUid/peerUid" to peerUid,
-            "/threads/$me/$peerUid/lastMessage" to trimmed,
-            "/threads/$me/$peerUid/updatedAt" to ServerValue.TIMESTAMP,
+                "/threads/$me/$peerUid/peerUid" to peerUid,
+                "/threads/$me/$peerUid/lastMessage" to trimmed,
+                "/threads/$me/$peerUid/updatedAt" to ServerValue.TIMESTAMP,
 
-            "/threads/$peerUid/$me/peerUid" to me,
-            "/threads/$peerUid/$me/lastMessage" to trimmed,
-            "/threads/$peerUid/$me/updatedAt" to ServerValue.TIMESTAMP
-        )
-        rtdb.reference.updateChildren(multi).await()
+                "/threads/$peerUid/$me/peerUid" to me,
+                "/threads/$peerUid/$me/lastMessage" to trimmed,
+                "/threads/$peerUid/$me/updatedAt" to ServerValue.TIMESTAMP
+            )
+            rtdb.reference.updateChildren(multi).await()
+        }
 
         // unreadCount++ del peer
         val unreadRef = rtdb.getReference("threads").child(peerUid).child(me).child("unreadCount")
@@ -130,6 +133,30 @@ class RtdbChatRepository(
             }
             override fun onComplete(error: DatabaseError?, committed: Boolean, snapshot: DataSnapshot?) {}
         })
+    }
+
+    // ✅ NUEVO: insertar mensaje entrante (para respuestas del bot u otros sistemas)
+    suspend fun receiveText(fromUid: String, toUid: String, text: String) {
+        val cid = convId(fromUid, toUid)
+        val msgsRef = rtdb.getReference("messages").child(cid)
+        val newKey = msgsRef.push().key ?: error("push() returned null key")
+
+        val trimmed = text.trim()
+
+        val multi = hashMapOf<String, Any?>(
+            "/messages/$cid/$newKey/fromUid" to fromUid,
+            "/messages/$cid/$newKey/toUid" to toUid,
+            "/messages/$cid/$newKey/text" to trimmed,
+            "/messages/$cid/$newKey/createdAt" to ServerValue.TIMESTAMP,
+
+            "/threads/$toUid/$fromUid/peerUid" to fromUid,
+            "/threads/$toUid/$fromUid/lastMessage" to trimmed,
+            "/threads/$toUid/$fromUid/updatedAt" to ServerValue.TIMESTAMP
+            // Si quisieras contarlo como no leído:
+            // "/threads/$toUid/$fromUid/unreadCount" to ServerValue.increment(1)
+        )
+
+        rtdb.reference.updateChildren(multi).await()
     }
 
     override suspend fun markThreadRead(peerUid: String) {
